@@ -1,0 +1,449 @@
+:root {
+  --bg: #f2f2f7;
+  --panel: #ffffff;
+  --border: rgba(60, 60, 67, 0.12);
+  --hairline: rgba(60, 60, 67, 0.08);
+  --text: #1c1c1e;
+  --muted: #8a8a8e;
+  --accent: #0a84ff;
+  --accent-soft: rgba(10, 132, 255, 0.12);
+  --good: #34c759;
+  --good-soft: rgba(52, 199, 89, 0.14);
+  --bad: #ff3b30;
+  --bad-soft: rgba(255, 59, 48, 0.12);
+  --exam-bg: #e9e9ee;
+  --input-bg: #ffffff;
+  --radius-lg: 20px;
+  --radius-md: 14px;
+  --radius-sm: 10px;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
+}
+
+html[data-theme="dark"] {
+  --bg: #000000;
+  --panel: #1c1c1e;
+  --border: rgba(255, 255, 255, 0.12);
+  --hairline: rgba(255, 255, 255, 0.08);
+  --text: #f2f2f7;
+  --muted: #98989d;
+  --accent: #409cff;
+  --accent-soft: rgba(64, 156, 255, 0.18);
+  --good: #32d74b;
+  --good-soft: rgba(50, 215, 75, 0.16);
+  --bad: #ff453a;
+  --bad-soft: rgba(255, 69, 58, 0.16);
+  --exam-bg: #0e0e10;
+  --input-bg: #2c2c2e;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+* { box-sizing: border-box; }
+
+@keyframes floatIn {
+  from { opacity: 0; transform: translateY(-8px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes popIn {
+  0% { transform: scale(0.85); opacity: 0; }
+  60% { transform: scale(1.05); opacity: 1; }
+  100% { transform: scale(1); }
+}
+
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulseRing {
+  0% { box-shadow: 0 0 0 0 var(--accent-soft); }
+  100% { box-shadow: 0 0 0 8px rgba(0, 0, 0, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Apple SD Gothic Neo",
+    "Malgun Gothic", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background: var(--bg);
+  color: var(--text);
+  max-width: 1300px;
+  margin: 0 auto;
+  padding: 24px 20px 80px;
+  line-height: 1.5;
+  letter-spacing: -0.01em;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+#themeToggle {
+  display: block;
+  margin: 0 0 20px auto;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+#themeToggle:hover { opacity: 1; color: var(--accent); }
+
+section {
+  background: var(--panel);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  padding: 22px 26px;
+  margin-bottom: 18px;
+  box-shadow: var(--shadow);
+}
+
+/* 업로드 */
+#uploadSection div { margin-bottom: 12px; }
+#uploadSection div:last-of-type { margin-bottom: 0; }
+
+#loadBtnRow {
+  margin-top: 8px;
+}
+
+label {
+  font-size: 14px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+input[type="file"],
+input[type="number"],
+input[type="text"] {
+  font-family: inherit;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--input-bg);
+}
+
+input[type="number"] { width: 70px; }
+
+button {
+  font-family: inherit;
+  border: none;
+  border-radius: 980px;
+  padding: 9px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--accent);
+  color: white;
+  letter-spacing: -0.01em;
+  transition: opacity 0.15s ease, transform 0.1s ease;
+}
+
+button:hover { opacity: 0.85; }
+button:active { transform: scale(0.97); }
+button:disabled { opacity: 0.35; cursor: default; transform: none; }
+
+#loadStatus, #keyStatus {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 10px;
+}
+
+/* 정답 입력 표 + 가림 처리 */
+#keyWrapper {
+  position: relative;
+}
+
+#answerKeyTable {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.key-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.key-cell input {
+  width: 36px;
+  text-align: center;
+  font-size: 14px;
+  background: var(--input-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+#keyWrapper.blurred #answerKeyTable {
+  filter: blur(8px);
+  user-select: none;
+  pointer-events: none;
+  transition: filter 0.35s ease;
+}
+
+#answerKeyTable {
+  transition: filter 0.35s ease;
+}
+
+#keyOverlay { display: none; }
+
+#keyWrapper.blurred #keyOverlay {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: absolute;
+  inset: 0;
+}
+
+/* 실시간 점수 + 컨트롤 버튼 */
+#controlRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+#liveScore {
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--accent);
+}
+
+#controlButtons {
+  display: flex;
+  gap: 8px;
+}
+
+#controlButtons button {
+  background: var(--input-bg);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  box-shadow: none;
+  font-size: 13px;
+  padding: 7px 14px;
+}
+
+#controlButtons button:hover {
+  color: var(--bad);
+  border-color: var(--bad);
+  opacity: 1;
+}
+
+/* 문항 네비게이터 */
+#navigator {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(38px, 1fr));
+  gap: 7px;
+  margin-bottom: 22px;
+}
+
+.nav-btn {
+  padding: 8px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--input-bg);
+  color: var(--text);
+  font-weight: 600;
+  font-size: 13px;
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, transform 0.12s ease;
+}
+
+.nav-btn:hover { transform: translateY(-1px); }
+.nav-btn.current { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.nav-btn.correct { background: var(--good-soft); border-color: var(--good); color: var(--good); animation: popIn 0.25s ease; }
+.nav-btn.wrong { background: var(--bad-soft); border-color: var(--bad); color: var(--bad); animation: popIn 0.25s ease; }
+
+/* 문제지 + 답 선택 영역 */
+#workArea {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+/* 시험지 (왼쪽) */
+#examPanel {
+  flex: 3;
+  min-width: 0;
+  min-height: 300px;
+  max-height: 92vh;
+  overflow-y: auto;
+  overflow-x: auto;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  background: var(--exam-bg);
+}
+
+#examToolbar {
+  position: sticky;
+  top: 12px;
+  z-index: 5;
+  display: inline-flex;
+  width: fit-content;
+  margin: 12px auto 0;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 6px 10px;
+  border-radius: 980px;
+  background: color-mix(in srgb, var(--panel) 78%, transparent);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid var(--hairline);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14), 0 1px 3px rgba(0, 0, 0, 0.08);
+  animation: floatIn 0.35s ease both;
+}
+
+#examToolbar button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 15px;
+  line-height: 1;
+  background: var(--input-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: none;
+  transition: transform 0.12s ease, background 0.15s ease;
+}
+
+#examToolbar button:hover:not(:disabled) {
+  transform: scale(1.12);
+  background: var(--accent-soft);
+}
+
+#examToolbar button:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
+#zoomLevelLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  min-width: 42px;
+  text-align: center;
+  transition: color 0.15s ease;
+}
+
+#examPages {
+  width: 100%;
+  padding: 8px;
+  transition: width 0.25s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+#examPages canvas {
+  width: 100%;
+  height: auto;
+  display: block;
+  margin-bottom: 10px;
+  border-radius: 6px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+}
+
+/* 답 선택 패널 (오른쪽, 스크롤해도 계속 보이도록 고정) */
+#solvePanel {
+  flex: 2;
+  min-width: 0;
+  position: sticky;
+  top: 20px;
+  text-align: center;
+  padding: 24px 18px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+#currentQLabel {
+  font-size: 17px;
+  font-weight: 700;
+  margin-bottom: 16px;
+  animation: fadeSlideUp 0.25s ease;
+}
+
+#bigButtons {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.choiceBtn {
+  width: 52px;
+  height: 52px;
+  padding: 0;
+  font-size: 19px;
+  font-weight: 700;
+  background: var(--input-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  transition: transform 0.12s ease, background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.choiceBtn:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  opacity: 1;
+  transform: translateY(-2px);
+}
+
+.choiceBtn:active { transform: scale(0.92); }
+
+.choiceBtn.selected {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+  animation: popIn 0.2s ease;
+}
+
+#feedback {
+  font-size: 15px;
+  font-weight: 700;
+  min-height: 22px;
+  margin-bottom: 16px;
+}
+
+#feedback:not(:empty) {
+  animation: fadeSlideUp 0.25s ease;
+}
+
+/* 재사용 가능한 애니메이션 트리거 클래스 (JS에서 재생시킬 때 사용) */
+.anim-fade { animation: fadeSlideUp 0.25s ease; }
+.anim-pulse { animation: pulseRing 0.5s ease; }
+
+#navButtons {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+#navButtons button {
+  background: var(--input-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: none;
+}
+
+#navButtons button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  opacity: 1;
+}
+
+.wrong { color: var(--bad); }
+.correct { color: var(--good); }
+
+#keyOverlay button {
+  padding: 12px 28px;
+  font-size: 15px;
+}

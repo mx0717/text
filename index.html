@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>한국사 풀이</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <button id="themeToggle" type="button">다크모드</button>
+
+  <section id="uploadSection">
+    <div>
+      <label>문제지 PDF: <input type="file" id="examFile" accept="application/pdf"></label>
+    </div>
+    <div>
+      <label>정답지 PDF: <input type="file" id="answerFile" accept="application/pdf"></label>
+    </div>
+    <div>
+      <label>문항 수: <input type="number" id="questionCount" value="50" min="1" max="100"></label>
+    </div>
+    <div id="loadBtnRow">
+      <button id="loadBtn">불러오기</button>
+    </div>
+    <p id="loadStatus"></p>
+  </section>
+
+  <section id="mainSection" style="display:none;">
+    <div id="controlRow">
+      <div id="liveScore">맞은 개수: 0 / 0</div>
+      <div id="controlButtons">
+        <button id="resetProgressBtn" type="button">푼 문제 초기화</button>
+        <button id="deleteExamBtn" type="button">문제지 삭제</button>
+      </div>
+    </div>
+
+    <div id="navigator"></div>
+
+    <div id="workArea">
+      <div id="examPanel">
+        <div id="examToolbar">
+          <button id="zoomOutBtn" type="button">－</button>
+          <span id="zoomLevelLabel">100%</span>
+          <button id="zoomInBtn" type="button">＋</button>
+        </div>
+        <div id="examPages"></div>
+      </div>
+
+      <div id="solvePanel">
+        <div id="currentQLabel"></div>
+        <div id="bigButtons">
+          <button class="choiceBtn" data-choice="1">1</button>
+          <button class="choiceBtn" data-choice="2">2</button>
+          <button class="choiceBtn" data-choice="3">3</button>
+          <button class="choiceBtn" data-choice="4">4</button>
+          <button class="choiceBtn" data-choice="5">5</button>
+        </div>
+        <div id="feedback"></div>
+        <div id="navButtons">
+          <button id="prevBtn">← 이전 문제</button>
+          <button id="nextBtn">다음 문제 →</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="keySection" style="display:none;">
+    <p id="keyStatus"></p>
+    <div id="keyWrapper" class="blurred">
+      <div id="answerKeyTable"></div>
+      <div id="keyOverlay">
+        <button id="revealKeyBtn" type="button">정답 보기</button>
+      </div>
+    </div>
+  </section>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
