@@ -17,6 +17,8 @@
   --radius-md: 14px;
   --radius-sm: 10px;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
+  --shadow-float: 0 6px 16px rgba(0, 0, 0, 0.08), 0 2px 6px rgba(0, 0, 0, 0.06);
+  --shadow-float-hover: 0 14px 32px rgba(0, 0, 0, 0.14), 0 4px 10px rgba(0, 0, 0, 0.08);
 }
 
 html[data-theme="dark"] {
@@ -35,6 +37,8 @@ html[data-theme="dark"] {
   --exam-bg: #0e0e10;
   --input-bg: #2c2c2e;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.4);
+  --shadow-float: 0 6px 16px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.3);
+  --shadow-float-hover: 0 14px 32px rgba(0, 0, 0, 0.5), 0 4px 10px rgba(0, 0, 0, 0.35);
 }
 
 * { box-sizing: border-box; }
@@ -102,8 +106,44 @@ section {
 #uploadSection div { margin-bottom: 12px; }
 #uploadSection div:last-of-type { margin-bottom: 0; }
 
-#loadBtnRow {
-  margin-top: 8px;
+#loadBtnRow { margin-top: 8px; }
+
+/* 문제 풀이 방식 선택 */
+#modeSelectRow {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.modeOption {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  align-items: baseline;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.modeOption:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.modeOption input { margin: 0; }
+
+.modeOptionTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.modeOptionDesc {
+  grid-column: 2;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 label {
@@ -150,16 +190,127 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
   margin-top: 10px;
 }
 
-/* 정답 입력 표 + 가림 처리 */
-#keyWrapper {
-  position: relative;
+/* 문제지 목록 (플로팅 카드) */
+#examList {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 18px;
 }
+
+.exam-card {
+  position: relative;
+  background: var(--panel);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  box-shadow: var(--shadow-float);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  animation: fadeSlideUp 0.3s ease;
+}
+
+.exam-card:hover {
+  transform: translateY(-5px);
+  box-shadow: var(--shadow-float-hover);
+}
+
+.exam-card .exam-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 6px;
+  word-break: break-all;
+}
+
+.exam-card .exam-mode-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 980px;
+  margin-bottom: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.exam-card .exam-meta {
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 16px;
+}
+
+.exam-card .exam-card-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.exam-card .exam-card-buttons button {
+  flex: 1;
+  padding: 8px 0;
+  font-size: 13px;
+}
+
+.exam-card .openExamBtn {
+  background: var(--accent);
+  color: #fff;
+}
+
+.exam-card .deleteExamCardBtn {
+  background: var(--input-bg);
+  color: var(--bad);
+  border: 1px solid var(--border);
+}
+
+#examListEmpty {
+  color: var(--muted);
+  font-size: 14px;
+  text-align: center;
+  padding: 20px 0;
+}
+
+/* 풀이 화면 상단 */
+#backRow { margin-bottom: 14px; }
+
+#backToListBtn {
+  background: var(--input-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+#backToListBtn:hover { color: var(--accent); border-color: var(--accent); opacity: 1; }
+
+/* 정답 입력 표 + 가림 처리 */
+#keyHeaderRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+#keyHeaderRow #keyStatus { margin: 0; }
+
+#hideKeyBtn {
+  display: none;
+  flex-shrink: 0;
+  font-size: 12px;
+  padding: 6px 14px;
+  background: var(--input-bg);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  box-shadow: none;
+}
+
+#hideKeyBtn:hover { color: var(--bad); border-color: var(--bad); opacity: 1; }
+
+#keySection.revealed #hideKeyBtn { display: inline-flex; animation: floatIn 0.25s ease; }
+
+#keyWrapper { position: relative; }
 
 #answerKeyTable {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
   gap: 8px;
-  margin-top: 14px;
+  transition: filter 0.35s ease;
 }
 
 .key-cell {
@@ -181,20 +332,15 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
   border-radius: 8px;
 }
 
-#keyWrapper.blurred #answerKeyTable {
+#keySection:not(.revealed) #answerKeyTable {
   filter: blur(8px);
   user-select: none;
   pointer-events: none;
-  transition: filter 0.35s ease;
-}
-
-#answerKeyTable {
-  transition: filter 0.35s ease;
 }
 
 #keyOverlay { display: none; }
 
-#keyWrapper.blurred #keyOverlay {
+#keySection:not(.revealed) #keyOverlay {
   display: flex;
   justify-content: center;
   align-items: center;
@@ -202,26 +348,34 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
   inset: 0;
 }
 
-/* 실시간 점수 + 컨트롤 버튼 */
+#keyOverlay button { padding: 12px 28px; font-size: 15px; }
+
+#keySection.locked #keyOverlay button {
+  background: var(--muted);
+  cursor: not-allowed;
+}
+
+#keySection.locked #keyOverlay button:hover { opacity: 1; }
+
+#keySection.locked #keyOverlay::after {
+  content: "모든 문제를 제출해야 정답을 볼 수 있어요";
+  position: absolute;
+  bottom: 18px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* 컨트롤 버튼 (초기화/삭제) */
 #controlRow {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px;
+  justify-content: flex-end;
   margin-bottom: 18px;
 }
 
-#liveScore {
-  font-weight: 700;
-  font-size: 16px;
-  color: var(--accent);
-}
-
-#controlButtons {
-  display: flex;
-  gap: 8px;
-}
+#controlButtons { display: flex; gap: 8px; }
 
 #controlButtons button {
   background: var(--input-bg);
@@ -232,18 +386,23 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
   padding: 7px 14px;
 }
 
-#controlButtons button:hover {
-  color: var(--bad);
-  border-color: var(--bad);
-  opacity: 1;
+#controlButtons button:hover { color: var(--bad); border-color: var(--bad); opacity: 1; }
+
+/* 맞은 개수 + 문항 네비게이터 (답 선택 플로팅 패널 안, 위쪽에 배치) */
+#solvePanel #liveScore {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--accent);
+  margin-bottom: 12px;
 }
 
-/* 문항 네비게이터 */
-#navigator {
+#solvePanel #navigator {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(38px, 1fr));
-  gap: 7px;
-  margin-bottom: 22px;
+  grid-template-columns: repeat(auto-fill, minmax(30px, 1fr));
+  gap: 5px;
+  margin-bottom: 18px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--hairline);
 }
 
 .nav-btn {
@@ -261,6 +420,15 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
 .nav-btn.current { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .nav-btn.correct { background: var(--good-soft); border-color: var(--good); color: var(--good); animation: popIn 0.25s ease; }
 .nav-btn.wrong { background: var(--bad-soft); border-color: var(--bad); color: var(--bad); animation: popIn 0.25s ease; }
+.nav-btn.answered { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); animation: popIn 0.2s ease; }
+.nav-btn.locked { opacity: 0.35; cursor: default; }
+
+/* 답 선택 패널 안에서는 공간이 좁으므로 살짝 축소 */
+#solvePanel .nav-btn {
+  padding: 6px 0;
+  font-size: 11px;
+  border-radius: 8px;
+}
 
 /* 문제지 + 답 선택 영역 */
 #workArea {
@@ -269,30 +437,31 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
   align-items: flex-start;
 }
 
-/* 시험지 (왼쪽) */
+/* 시험지 (왼쪽): 확대 툴바는 페이지 스크롤을 따라다니고, 가로 확대 스크롤은 내부 래퍼에서만 처리 */
 #examPanel {
   flex: 3;
   min-width: 0;
-  min-height: 300px;
-  max-height: 92vh;
-  overflow-y: auto;
-  overflow-x: auto;
   border: 1px solid var(--hairline);
   border-radius: var(--radius-md);
   background: var(--exam-bg);
 }
 
+#examPagesScroll {
+  overflow-x: auto;
+}
+
 #examToolbar {
   position: sticky;
-  top: 12px;
+  top: 20px;
   z-index: 5;
-  display: inline-flex;
+  display: flex;
   width: fit-content;
-  margin: 12px auto 0;
+  height: 48px;
+  margin: 0 auto;
   align-items: center;
   justify-content: center;
   gap: 12px;
-  padding: 6px 10px;
+  padding: 0 14px;
   border-radius: 980px;
   background: color-mix(in srgb, var(--panel) 78%, transparent);
   backdrop-filter: blur(16px) saturate(180%);
@@ -315,14 +484,8 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
   transition: transform 0.12s ease, background 0.15s ease;
 }
 
-#examToolbar button:hover:not(:disabled) {
-  transform: scale(1.12);
-  background: var(--accent-soft);
-}
-
-#examToolbar button:active:not(:disabled) {
-  transform: scale(0.92);
-}
+#examToolbar button:hover:not(:disabled) { transform: scale(1.12); background: var(--accent-soft); }
+#examToolbar button:active:not(:disabled) { transform: scale(0.92); }
 
 #zoomLevelLabel {
   font-size: 13px;
@@ -390,13 +553,7 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
   transition: transform 0.12s ease, background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.choiceBtn:hover {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  opacity: 1;
-  transform: translateY(-2px);
-}
-
+.choiceBtn:hover { border-color: var(--accent); background: var(--accent-soft); opacity: 1; transform: translateY(-2px); }
 .choiceBtn:active { transform: scale(0.92); }
 
 .choiceBtn.selected {
@@ -413,19 +570,21 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
   margin-bottom: 16px;
 }
 
-#feedback:not(:empty) {
-  animation: fadeSlideUp 0.25s ease;
+#feedback:not(:empty) { animation: fadeSlideUp 0.25s ease; }
+
+#submitTestBtn {
+  display: block;
+  width: 100%;
+  margin-bottom: 16px;
+  background: var(--good);
 }
 
-/* 재사용 가능한 애니메이션 트리거 클래스 (JS에서 재생시킬 때 사용) */
+#submitTestBtn:hover { opacity: 0.85; }
+
 .anim-fade { animation: fadeSlideUp 0.25s ease; }
 .anim-pulse { animation: pulseRing 0.5s ease; }
 
-#navButtons {
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-}
+#navButtons { display: flex; justify-content: center; gap: 10px; }
 
 #navButtons button {
   background: var(--input-bg);
@@ -434,16 +593,44 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
   box-shadow: none;
 }
 
-#navButtons button:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-  opacity: 1;
-}
+#navButtons button:hover { border-color: var(--accent); color: var(--accent); opacity: 1; }
 
 .wrong { color: var(--bad); }
 .correct { color: var(--good); }
 
-#keyOverlay button {
-  padding: 12px 28px;
-  font-size: 15px;
+/* 로딩 오버레이 */
+#loadingOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  backdrop-filter: blur(10px) saturate(160%);
+  -webkit-backdrop-filter: blur(10px) saturate(160%);
+  animation: fadeSlideUp 0.2s ease;
+}
+
+#loadingOverlay.hidden { display: none; }
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+}
+
+#loadingText {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
