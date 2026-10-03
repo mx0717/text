@@ -73,6 +73,14 @@ const syncStatusEl = document.getElementById("syncStatus");
 let cloudUser = null;
 const cloudPushTimers = new Map();
 
+function withTimeout(promise, ms, timeoutMessage) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(timeoutMessage)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 function setSyncStatus(state) {
   syncStatusEl.className = "sync-status " + state;
   syncStatusEl.title = {
@@ -471,12 +479,27 @@ async function openExam(id) {
   let blob = await idbGetBlob(id);
   if (!blob && cloudUser) {
     showLoading("클라우드에서 문제지를 받아오는 중...");
-    blob = await Cloud.downloadBlob(cloudUser.uid, id, "exam");
+    try {
+      blob = await withTimeout(
+        Cloud.downloadBlob(cloudUser.uid, id, "exam", (cur, total) => {
+          loadingText.textContent = `클라우드에서 문제지를 받아오는 중... (${cur}/${total})`;
+        }),
+        40000,
+        "클라우드에서 문제지를 받아오는 데 시간이 너무 오래 걸려요. 네트워크 상태나 Firestore 보안 규칙을 확인해주세요."
+      );
+    } catch (e) {
+      console.error("문제지 다운로드 실패", e);
+      hideLoading();
+      alert("문제지를 불러오지 못했습니다: " + e.message);
+      return;
+    }
     if (blob) await idbPutBlob(id, blob);
   }
   if (!meta || !blob) {
     hideLoading();
-    alert("문제지를 불러올 수 없습니다.");
+    alert(!meta
+      ? "이 기기에 아직 이 문제지의 정보(메타데이터)가 동기화되지 않았습니다. 홈 화면으로 나갔다가 다시 들어와보세요."
+      : "문제지를 불러올 수 없습니다.");
     return;
   }
 
@@ -508,7 +531,18 @@ async function openExam(id) {
 
     let answerBlob = await idbGetBlob(id + "_answer");
     if (!answerBlob && cloudUser) {
-      answerBlob = await Cloud.downloadBlob(cloudUser.uid, id, "answer");
+      try {
+        answerBlob = await withTimeout(
+          Cloud.downloadBlob(cloudUser.uid, id, "answer", (cur, total) => {
+            loadingText.textContent = `클라우드에서 정답지를 받아오는 중... (${cur}/${total})`;
+          }),
+          40000,
+          "정답지를 받아오는 데 시간이 너무 오래 걸려요."
+        );
+      } catch (e) {
+        console.error("정답지 다운로드 실패(계속 진행)", e);
+        answerBlob = null; // 정답지 없이도 문제지는 열 수 있게 계속 진행
+      }
       if (answerBlob) await idbPutBlob(id + "_answer", answerBlob);
     }
     await renderAnswerKeyPDF(answerBlob, answerKeyPagesDiv, 1.6);
@@ -1046,9 +1080,27 @@ loadBtn.addEventListener("click", async () => {
     );
 
     if (cloudUser) {
-      loadingText.textContent = "클라우드에 업로드하는 중...";
-      await Cloud.uploadBlob(cloudUser.uid, id, "exam", examFile);
-      if (answerFile) await Cloud.uploadBlob(cloudUser.uid, id, "answer", answerFile);
+      try {
+        await withTimeout(
+          Cloud.uploadBlob(cloudUser.uid, id, "exam", examFile, (cur, total) => {
+            loadingText.textContent = `클라우드에 업로드하는 중... (${cur}/${total})`;
+          }),
+          60000,
+          "클라우드 업로드가 너무 오래 걸려요."
+        );
+        if (answerFile) {
+          await withTimeout(
+            Cloud.uploadBlob(cloudUser.uid, id, "answer", answerFile, (cur, total) => {
+              loadingText.textContent = `클라우드에 정답지 업로드하는 중... (${cur}/${total})`;
+            }),
+            60000,
+            "정답지 클라우드 업로드가 너무 오래 걸려요."
+          );
+        }
+      } catch (e) {
+        console.error("클라우드 업로드 실패(로컬에는 저장됨)", e);
+        // 클라우드 업로드가 실패해도 로컬 저장은 이미 끝났으므로 문제지 사용 자체는 계속 진행한다
+      }
     }
 
     videoUrlInput.value = "";

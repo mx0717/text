@@ -36,25 +36,25 @@ const firebaseConfig = {
   appId: "1:996147968420:web:cc6d710777562d90e9e931",
 };
 // ⬆️⬆️⬆️ 여기까지 ⬆️⬆️⬆️
-
+ 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const provider = new GoogleAuthProvider();
-
+ 
 let unsubscribeSnapshot = null;
-
+ 
 /* ---------------------------------------------------------
    인증 (Google 로그인)
 --------------------------------------------------------- */
 export function onAuthChange(callback) {
   onAuthStateChanged(auth, callback);
 }
-
+ 
 export async function signIn() {
   await signInWithPopup(auth, provider);
 }
-
+ 
 export async function signOutUser() {
   if (unsubscribeSnapshot) {
     unsubscribeSnapshot();
@@ -62,11 +62,11 @@ export async function signOutUser() {
   }
   await signOut(auth);
 }
-
+ 
 export function getCurrentUser() {
   return auth.currentUser;
 }
-
+ 
 /* ---------------------------------------------------------
    Firestore: 문제지 메타데이터(정답, 풀이기록, 필기 등)
    문서 하나 = 문제지 하나. 필드가 중첩 배열을 포함해도 되도록
@@ -75,7 +75,7 @@ export function getCurrentUser() {
 function examDocRef(uid, examId) {
   return doc(db, "users", uid, "exams", examId);
 }
-
+ 
 export async function pushMeta(uid, examId, meta) {
   try {
     await setDoc(examDocRef(uid, examId), {
@@ -88,7 +88,7 @@ export async function pushMeta(uid, examId, meta) {
     return false;
   }
 }
-
+ 
 export async function fetchAllRemoteMetas(uid) {
   const snap = await getDocs(collection(db, "users", uid, "exams"));
   const result = [];
@@ -101,7 +101,7 @@ export async function fetchAllRemoteMetas(uid) {
   });
   return result;
 }
-
+ 
 // 다른 기기에서 생긴 변경을 실시간으로 받는다
 export function subscribeRemoteChanges(uid, onChange) {
   if (unsubscribeSnapshot) unsubscribeSnapshot();
@@ -124,19 +124,18 @@ export function subscribeRemoteChanges(uid, onChange) {
     (err) => console.error("실시간 동기화 오류", err)
   );
 }
-
+ 
 /* ---------------------------------------------------------
    파일(PDF)을 Firestore에 base64 청크로 나눠 저장한다.
    users/{uid}/exams/{examId}/files_{kind}/{0,1,2,...}
    (kind는 "exam" 또는 "answer")
 --------------------------------------------------------- */
-const CHUNK_CHARS = 700000; // base64 문자 기준, 문서당 약 700KB (1MB 제한보다 여유있게)
-const BATCH_LIMIT = 450;    // Firestore 배치 쓰기 최대 500건보다 여유있게
-
+const CHUNK_CHARS = 400000; // base64 문자 기준, 문서당 약 400KB (요청 하나가 너무 커지지 않도록 여유있게)
+ 
 function fileCollectionRef(uid, examId, kind) {
   return collection(db, "users", uid, "exams", examId, "files_" + kind);
 }
-
+ 
 function blobToBase64(blob) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -149,34 +148,29 @@ function blobToBase64(blob) {
     reader.readAsDataURL(blob);
   });
 }
-
+ 
 async function deleteFileChunks(uid, examId, kind) {
   const snap = await getDocs(fileCollectionRef(uid, examId, kind));
   const refs = [];
   snap.forEach((d) => refs.push(d.ref));
-  for (let start = 0; start < refs.length; start += BATCH_LIMIT) {
-    const batch = writeBatch(db);
-    refs.slice(start, start + BATCH_LIMIT).forEach((r) => batch.delete(r));
-    await batch.commit();
-  }
+  // 삭제는 조각당 데이터가 없어 가벼우므로 병렬로 처리해도 안전하다
+  await Promise.all(refs.map((r) => deleteDoc(r)));
 }
-
-export async function uploadBlob(uid, examId, kind, blob) {
+ 
+// onProgress(current, total) - 선택: 진행 상황을 화면에 표시하고 싶을 때 전달
+export async function uploadBlob(uid, examId, kind, blob, onProgress) {
   try {
     const base64 = await blobToBase64(blob);
     const totalChunks = Math.max(1, Math.ceil(base64.length / CHUNK_CHARS));
-
+ 
     await deleteFileChunks(uid, examId, kind); // 이전 조각 정리 (덮어쓰기 대비)
-
+ 
     const colRef = fileCollectionRef(uid, examId, kind);
-    for (let start = 0; start < totalChunks; start += BATCH_LIMIT) {
-      const batch = writeBatch(db);
-      const end = Math.min(start + BATCH_LIMIT, totalChunks);
-      for (let i = start; i < end; i++) {
-        const chunkStr = base64.slice(i * CHUNK_CHARS, (i + 1) * CHUNK_CHARS);
-        batch.set(doc(colRef, String(i)), { data: chunkStr, index: i, total: totalChunks });
-      }
-      await batch.commit();
+    // 조각을 하나씩 순서대로 보낸다 (한 번에 너무 많이 묶으면 요청이 너무 커져 멈출 수 있다)
+    for (let i = 0; i < totalChunks; i++) {
+      const chunkStr = base64.slice(i * CHUNK_CHARS, (i + 1) * CHUNK_CHARS);
+      await setDoc(doc(colRef, String(i)), { data: chunkStr, index: i, total: totalChunks });
+      if (onProgress) onProgress(i + 1, totalChunks);
     }
     return true;
   } catch (e) {
@@ -184,14 +178,15 @@ export async function uploadBlob(uid, examId, kind, blob) {
     return false;
   }
 }
-
-export async function downloadBlob(uid, examId, kind) {
+ 
+export async function downloadBlob(uid, examId, kind, onProgress) {
   try {
     const snap = await getDocs(fileCollectionRef(uid, examId, kind));
     if (snap.empty) return null;
     const chunks = [];
     snap.forEach((d) => chunks.push(d.data()));
     chunks.sort((a, b) => a.index - b.index);
+    if (onProgress) onProgress(chunks.length, chunks.length);
     const base64 = chunks.map((c) => c.data).join("");
     const res = await fetch(`data:application/pdf;base64,${base64}`);
     return await res.blob();
@@ -200,7 +195,7 @@ export async function downloadBlob(uid, examId, kind) {
     return null;
   }
 }
-
+ 
 export async function deleteRemoteExam(uid, examId) {
   try {
     await deleteDoc(examDocRef(uid, examId));
