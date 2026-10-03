@@ -7,7 +7,16 @@
 </head>
 <body>
 
-  <button id="themeToggle" type="button">다크모드</button>
+  <div id="topBar">
+    <div id="accountBar">
+      <span id="syncStatus" class="sync-status offline" title="로그인하면 모든 기기에서 동기화돼요"></span>
+      <span id="accountEmail"></span>
+      <button id="signInBtn" type="button">Google로 로그인</button>
+      <button id="signOutBtn" type="button" style="display:none;">로그아웃</button>
+    </div>
+    <button id="fullscreenToggle" type="button">전체화면</button>
+    <button id="themeToggle" type="button">다크모드</button>
+  </div>
 
   <div id="loadingOverlay" class="hidden">
     <div class="spinner"></div>
@@ -25,6 +34,9 @@
       </div>
       <div>
         <label>문항 수: <input type="number" id="questionCount" value="50" min="1" max="100"></label>
+      </div>
+      <div>
+        <label>기출 영상(유튜브, 선택): <input type="text" id="videoUrlInput" placeholder="https://www.youtube.com/watch?v=..."></label>
       </div>
       <div id="modeSelectRow">
         <label class="modeOption">
@@ -71,6 +83,22 @@
           <div id="examPagesScroll">
             <div id="examPages"></div>
           </div>
+          <div id="drawToolbar">
+            <button id="penToolBtn" type="button" title="펜">✏️</button>
+            <button id="eraserToolBtn" type="button" title="지우개">🧹</button>
+            <div id="undoRedoGroup">
+              <button id="undoAnnotationBtn" type="button" title="되돌리기" disabled>↩️</button>
+              <button id="redoAnnotationBtn" type="button" title="다시 되돌리기" disabled>↪️</button>
+            </div>
+            <div id="colorSwatches">
+              <button class="colorSwatch active" type="button" data-color="#1c1c1e" style="background:#1c1c1e"></button>
+              <button class="colorSwatch" type="button" data-color="#ff3b30" style="background:#ff3b30"></button>
+              <button class="colorSwatch" type="button" data-color="#0a84ff" style="background:#0a84ff"></button>
+              <button class="colorSwatch" type="button" data-color="#34c759" style="background:#34c759"></button>
+              <button class="colorSwatch" type="button" data-color="#ff9500" style="background:#ff9500"></button>
+            </div>
+            <button id="clearAnnotationsBtn" type="button" title="모두 지우기">🗑️</button>
+          </div>
         </div>
 
         <div id="solvePanel">
@@ -94,13 +122,24 @@
       </div>
     </section>
 
+    <section id="videoSection" style="display:none;">
+      <div id="videoWrap">
+        <iframe id="videoFrame" src="" title="기출 영상" frameborder="0"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowfullscreen></iframe>
+      </div>
+    </section>
+
     <section id="keySection">
       <div id="keyHeaderRow">
         <p id="keyStatus"></p>
         <button id="hideKeyBtn" type="button">정답 가리기</button>
       </div>
       <div id="keyWrapper">
-        <div id="answerKeyTable"></div>
+        <div id="keyBlurContent">
+          <div id="answerKeyTable"></div>
+          <div id="answerKeyPages"></div>
+        </div>
         <div id="keyOverlay">
           <button id="revealKeyBtn" type="button">정답 보기</button>
         </div>
@@ -109,6 +148,6 @@
   </section>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
-  <script src="script.js"></script>
+  <script type="module" src="script.js"></script>
 </body>
 </html>

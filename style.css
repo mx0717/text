@@ -82,16 +82,66 @@ body {
   transition: background 0.2s ease, color 0.2s ease;
 }
 
-#themeToggle {
-  display: block;
-  margin: 0 0 20px auto;
+#topBar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+#topBar button {
   background: var(--panel);
   color: var(--text);
   border: 1px solid var(--border);
   box-shadow: var(--shadow);
 }
 
-#themeToggle:hover { opacity: 1; color: var(--accent); }
+#topBar button:hover { opacity: 1; color: var(--accent); }
+
+#accountBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+  font-size: 13px;
+}
+
+.sync-status {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--muted);
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.sync-status.offline { background: var(--muted); }
+.sync-status.idle { background: var(--good, #34c759); box-shadow: 0 0 0 3px color-mix(in srgb, #34c759 20%, transparent); }
+.sync-status.syncing {
+  background: #0a84ff;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #0a84ff 25%, transparent);
+  animation: syncPulse 1s ease-in-out infinite;
+}
+.sync-status.error { background: var(--bad, #ff3b30); }
+
+@keyframes syncPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+#accountEmail {
+  color: var(--muted);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#signInBtn, #signOutBtn {
+  font-size: 13px;
+  padding: 6px 12px;
+}
 
 section {
   background: var(--panel);
@@ -234,6 +284,13 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
 .exam-card .exam-meta {
   font-size: 13px;
   color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.exam-card .exam-date {
+  font-size: 12px;
+  color: var(--muted);
+  opacity: 0.8;
   margin-bottom: 16px;
 }
 
@@ -306,11 +363,12 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
 
 #keyWrapper { position: relative; }
 
+#keyBlurContent { transition: filter 0.35s ease; }
+
 #answerKeyTable {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
   gap: 8px;
-  transition: filter 0.35s ease;
 }
 
 .key-cell {
@@ -332,7 +390,19 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
   border-radius: 8px;
 }
 
-#keySection:not(.revealed) #answerKeyTable {
+/* 답지 PDF 원본 보기 (있을 경우, 정답표 아래에 표시) */
+#answerKeyPages { margin-top: 18px; }
+
+.answerKeyPageCanvas {
+  width: 100%;
+  height: auto;
+  display: block;
+  margin-bottom: 10px;
+  border-radius: 6px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+}
+
+#keySection:not(.revealed) #keyBlurContent {
   filter: blur(8px);
   user-select: none;
   pointer-events: none;
@@ -463,11 +533,11 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
   gap: 12px;
   padding: 0 14px;
   border-radius: 980px;
-  background: color-mix(in srgb, var(--panel) 78%, transparent);
-  backdrop-filter: blur(16px) saturate(180%);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
-  border: 1px solid var(--hairline);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14), 0 1px 3px rgba(0, 0, 0, 0.08);
+  background: color-mix(in srgb, var(--panel) 48%, transparent);
+  backdrop-filter: blur(28px) saturate(200%);
+  -webkit-backdrop-filter: blur(28px) saturate(200%);
+  border: 1px solid color-mix(in srgb, var(--hairline) 70%, transparent);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.06);
   animation: floatIn 0.35s ease both;
 }
 
@@ -502,13 +572,135 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
   transition: width 0.25s cubic-bezier(0.25, 1, 0.5, 1);
 }
 
-#examPages canvas {
+.examPageWrap {
+  position: relative;
+  margin-bottom: 10px;
+}
+
+.examPageWrap canvas:first-child {
   width: 100%;
   height: auto;
   display: block;
-  margin-bottom: 10px;
   border-radius: 6px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+}
+
+.annotation-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  touch-action: pan-y;
+}
+
+#examPages.annotating .annotation-canvas {
+  pointer-events: auto;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+/* 필기 툴바: 확대 툴바와 동일한 스타일, 시험지 하단에서 화면을 따라다님 */
+#drawToolbar {
+  position: sticky;
+  bottom: 20px;
+  z-index: 5;
+  display: flex;
+  width: fit-content;
+  height: 48px;
+  margin: 16px auto 8px;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 0 14px;
+  border-radius: 980px;
+  background: color-mix(in srgb, var(--panel) 48%, transparent);
+  backdrop-filter: blur(28px) saturate(200%);
+  -webkit-backdrop-filter: blur(28px) saturate(200%);
+  border: 1px solid color-mix(in srgb, var(--hairline) 70%, transparent);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.06);
+  animation: floatIn 0.35s ease both;
+}
+
+#drawToolbar button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+  background: var(--input-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: none;
+  border-radius: 50%;
+  transition: transform 0.12s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+#drawToolbar button:hover { transform: scale(1.12); background: var(--accent-soft); }
+#drawToolbar button:active { transform: scale(0.92); }
+
+#penToolBtn.active, #eraserToolBtn.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+#undoRedoGroup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 4px;
+  border-left: 1px solid var(--hairline);
+}
+
+#undoRedoGroup button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+#undoRedoGroup button:disabled:hover {
+  transform: none;
+  background: var(--input-bg);
+}
+
+#colorSwatches {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  border-left: 1px solid var(--hairline);
+  border-right: 1px solid var(--hairline);
+}
+
+.colorSwatch {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  box-shadow: none;
+}
+
+.colorSwatch.active {
+  border-color: var(--text);
+  transform: scale(1.15);
+}
+
+#clearAnnotationsBtn {
+  width: auto;
+  height: 28px;
+  border-radius: 980px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+#clearAnnotationsBtn:hover {
+  color: var(--bad);
+  border-color: var(--bad);
+  background: var(--bad-soft);
+  transform: none;
 }
 
 /* 답 선택 패널 (오른쪽, 스크롤해도 계속 보이도록 고정) */
@@ -633,4 +825,26 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* 기출 영상 (문제지와 정답 확인 사이) */
+#videoSection { padding: 20px 24px; }
+
+#videoWrap {
+  position: relative;
+  width: 100%;
+  max-width: 720px;
+  aspect-ratio: 16 / 9;
+  margin: 0 auto;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+
+#videoWrap iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
 }

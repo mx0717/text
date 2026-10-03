@@ -1,3 +1,5 @@
+import * as Cloud from "./firebase-sync.js";
+
 // pdf.js wor커 설정
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js";
@@ -31,10 +33,17 @@ const mainSection = document.getElementById("mainSection");
 
 const examPagesDiv = document.getElementById("examPages");
 const answerKeyTableDiv = document.getElementById("answerKeyTable");
+const answerKeyPagesDiv = document.getElementById("answerKeyPages");
 const navigatorDiv = document.getElementById("navigator");
 const currentQLabel = document.getElementById("currentQLabel");
 const feedbackDiv = document.getElementById("feedback");
 const liveScoreDiv = document.getElementById("liveScore");
+
+const videoUrlInput = document.getElementById("videoUrlInput");
+const videoSection = document.getElementById("videoSection");
+const videoFrame = document.getElementById("videoFrame");
+
+const fullscreenToggle = document.getElementById("fullscreenToggle");
 
 const themeToggle = document.getElementById("themeToggle");
 const keyWrapper = document.getElementById("keyWrapper");
@@ -52,6 +61,149 @@ function showLoading(text) {
 function hideLoading() {
   loadingOverlay.classList.add("hidden");
 }
+
+/* ---------------------------------------------------------
+   클라우드 동기화 (로그인 + Firestore/Storage)
+--------------------------------------------------------- */
+const signInBtn = document.getElementById("signInBtn");
+const signOutBtn = document.getElementById("signOutBtn");
+const accountEmail = document.getElementById("accountEmail");
+const syncStatusEl = document.getElementById("syncStatus");
+
+let cloudUser = null;
+const cloudPushTimers = new Map();
+
+function setSyncStatus(state) {
+  syncStatusEl.className = "sync-status " + state;
+  syncStatusEl.title = {
+    idle: "클라우드와 동기화됨",
+    syncing: "동기화 중...",
+    offline: "로그인하면 모든 기기에서 동기화돼요",
+    error: "동기화 중 문제가 발생했어요 (연결을 확인해주세요)",
+  }[state] || "";
+}
+
+signInBtn.addEventListener("click", async () => {
+  try {
+    setSyncStatus("syncing");
+    await Cloud.signIn();
+  } catch (e) {
+    console.error(e);
+    alert("로그인에 실패했습니다: " + e.message);
+    setSyncStatus("offline");
+  }
+});
+
+signOutBtn.addEventListener("click", async () => {
+  await Cloud.signOutUser();
+});
+
+// 로컬에 저장하면서, 로그인되어 있으면 클라우드에도 올린다 (짧은 디바운스)
+async function saveMetaAndSync(meta, { immediate = false } = {}) {
+  meta.updatedAt = Date.now();
+  await idbPutMeta(meta);
+  if (!cloudUser) return;
+
+  if (cloudPushTimers.has(meta.id)) clearTimeout(cloudPushTimers.get(meta.id));
+
+  const doPush = async () => {
+    cloudPushTimers.delete(meta.id);
+    setSyncStatus("syncing");
+    const ok = await Cloud.pushMeta(cloudUser.uid, meta.id, meta);
+    setSyncStatus(ok ? "idle" : "error");
+  };
+
+  if (immediate) {
+    await doPush();
+  } else {
+    cloudPushTimers.set(meta.id, setTimeout(doPush, 1200));
+  }
+}
+
+// 로그인 직후: 로컬 ↔ 클라우드 데이터를 합친다 (최신 updatedAt이 이긴다)
+async function performInitialSync() {
+  if (!cloudUser) return;
+  setSyncStatus("syncing");
+  try {
+    const remoteMetas = await Cloud.fetchAllRemoteMetas(cloudUser.uid);
+    const localMetas = await idbGetAllMeta();
+    const localById = new Map(localMetas.map((m) => [m.id, m]));
+
+    for (const remoteMeta of remoteMetas) {
+      const localMeta = localById.get(remoteMeta.id);
+      if (!localMeta || (remoteMeta.updatedAt || 0) > (localMeta.updatedAt || 0)) {
+        await idbPutMeta(remoteMeta); // 로컬에만 반영 (다시 올리지 않음)
+        if (!(await idbGetBlob(remoteMeta.id))) {
+          const blob = await Cloud.downloadBlob(cloudUser.uid, remoteMeta.id, "exam");
+          if (blob) await idbPutBlob(remoteMeta.id, blob);
+        }
+        if (!(await idbGetBlob(remoteMeta.id + "_answer"))) {
+          const answerBlob = await Cloud.downloadBlob(cloudUser.uid, remoteMeta.id, "answer");
+          if (answerBlob) await idbPutBlob(remoteMeta.id + "_answer", answerBlob);
+        }
+      }
+    }
+
+    // 로컬에만 있고 아직 클라우드에 없는 문제지는 올린다
+    const remoteIds = new Set(remoteMetas.map((m) => m.id));
+    for (const localMeta of localMetas) {
+      if (remoteIds.has(localMeta.id)) continue;
+      await Cloud.pushMeta(cloudUser.uid, localMeta.id, localMeta);
+      const examBlob = await idbGetBlob(localMeta.id);
+      if (examBlob) await Cloud.uploadBlob(cloudUser.uid, localMeta.id, "exam", examBlob);
+      const answerBlob = await idbGetBlob(localMeta.id + "_answer");
+      if (answerBlob) await Cloud.uploadBlob(cloudUser.uid, localMeta.id, "answer", answerBlob);
+    }
+
+    if (homeSection.style.display !== "none") renderExamList();
+    setSyncStatus("idle");
+  } catch (e) {
+    console.error("초기 동기화 실패", e);
+    setSyncStatus("error");
+  }
+}
+
+// 다른 기기에서 생긴 변경을 실시간으로 반영
+function handleRemoteChange(change) {
+  if (change.type === "removed") {
+    idbDeleteMeta(change.examId);
+    idbDeleteBlob(change.examId);
+    idbDeleteBlob(change.examId + "_answer");
+    if (currentExamId === change.examId) {
+      alert("다른 기기에서 이 문제지를 삭제했습니다.");
+      showHome();
+    } else if (homeSection.style.display !== "none") {
+      renderExamList();
+    }
+    return;
+  }
+
+  idbGetMeta(change.examId).then(async (localMeta) => {
+    if (localMeta && (localMeta.updatedAt || 0) >= (change.meta.updatedAt || 0)) return;
+    await idbPutMeta(change.meta);
+    if (currentExamId === change.examId) {
+      openExam(change.examId); // 지금 보고 있는 문제지가 바뀌었으면 새로 불러온다
+    } else if (homeSection.style.display !== "none") {
+      renderExamList();
+    }
+  });
+}
+
+Cloud.onAuthChange(async (user) => {
+  cloudUser = user;
+  if (user) {
+    accountEmail.textContent = user.email || user.displayName || "";
+    signInBtn.style.display = "none";
+    signOutBtn.style.display = "inline-block";
+    await performInitialSync();
+    Cloud.subscribeRemoteChanges(user.uid, handleRemoteChange);
+  } else {
+    accountEmail.textContent = "";
+    signInBtn.style.display = "inline-block";
+    signOutBtn.style.display = "none";
+    setSyncStatus("offline");
+  }
+});
 
 const deleteExamBtn = document.getElementById("deleteExamBtn");
 const resetProgressBtn = document.getElementById("resetProgressBtn");
@@ -198,7 +350,7 @@ async function saveCurrentMeta() {
   meta.mode = currentMode;
   meta.testSubmitted = testSubmitted;
   meta.maxReached = maxReached;
-  await idbPutMeta(meta);
+  await saveMetaAndSync(meta);
 }
 
 /* ---------------------------------------------------------
@@ -237,7 +389,17 @@ async function renderExamList() {
 
     const meta_ = document.createElement("div");
     meta_.className = "exam-meta";
+    const dateStr = meta.createdAt
+      ? new Date(meta.createdAt).toLocaleString("ko-KR", {
+          year: "numeric", month: "long", day: "numeric",
+          hour: "2-digit", minute: "2-digit",
+        })
+      : "";
     meta_.textContent = `${meta.questionCount}문항 · ${answeredCount}/${meta.questionCount} 풀이 · ${correctCount}개 정답`;
+
+    const dateEl = document.createElement("div");
+    dateEl.className = "exam-date";
+    dateEl.textContent = dateStr ? `만든 날짜: ${dateStr}` : "";
 
     const btnRow = document.createElement("div");
     btnRow.className = "exam-card-buttons";
@@ -257,6 +419,8 @@ async function renderExamList() {
       if (!confirm(`"${meta.title}" 문제지를 삭제할까요? 되돌릴 수 없습니다.`)) return;
       await idbDeleteMeta(meta.id);
       await idbDeleteBlob(meta.id);
+      await idbDeleteBlob(meta.id + "_answer");
+      if (cloudUser) await Cloud.deleteRemoteExam(cloudUser.uid, meta.id);
       renderExamList();
     });
 
@@ -266,6 +430,7 @@ async function renderExamList() {
     card.appendChild(title);
     card.appendChild(modeBadge);
     card.appendChild(meta_);
+    card.appendChild(dateEl);
     card.appendChild(btnRow);
     examListDiv.appendChild(card);
   });
@@ -277,6 +442,9 @@ function showHome() {
   homeSection.style.display = "block";
   examFileInput.value = "";
   answerFileInput.value = "";
+  videoUrlInput.value = "";
+  videoFrame.src = "";
+  videoSection.style.display = "none";
   loadStatus.textContent = "";
   renderExamList();
 }
@@ -300,8 +468,14 @@ function updateModeUI() {
 --------------------------------------------------------- */
 async function openExam(id) {
   const meta = await idbGetMeta(id);
-  const blob = await idbGetBlob(id);
+  let blob = await idbGetBlob(id);
+  if (!blob && cloudUser) {
+    showLoading("클라우드에서 문제지를 받아오는 중...");
+    blob = await Cloud.downloadBlob(cloudUser.uid, id, "exam");
+    if (blob) await idbPutBlob(id, blob);
+  }
   if (!meta || !blob) {
+    hideLoading();
     alert("문제지를 불러올 수 없습니다.");
     return;
   }
@@ -326,9 +500,21 @@ async function openExam(id) {
     examPagesDiv.innerHTML = "";
     zoomLevel = 1;
     applyZoom();
+    setAnnotateMode("off");
     await renderPDFToContainer(blob, examPagesDiv, 2.2);
+    applyAnnotations(meta.annotationStrokes);
 
     buildAnswerKeyTable(questionCount, meta.keyAnswers || new Array(questionCount).fill(""));
+
+    let answerBlob = await idbGetBlob(id + "_answer");
+    if (!answerBlob && cloudUser) {
+      answerBlob = await Cloud.downloadBlob(cloudUser.uid, id, "answer");
+      if (answerBlob) await idbPutBlob(id + "_answer", answerBlob);
+    }
+    await renderAnswerKeyPDF(answerBlob, answerKeyPagesDiv, 1.6);
+
+    setupVideo(meta.videoId);
+
     buildNavigator(questionCount);
 
     const showGraded = currentMode === "free" || testSubmitted;
@@ -385,6 +571,289 @@ zoomOutBtn.addEventListener("click", () => {
 });
 
 /* ---------------------------------------------------------
+   필기 기능 (시험지 위에 손글씨로 표시)
+--------------------------------------------------------- */
+const penToolBtn = document.getElementById("penToolBtn");
+const eraserToolBtn = document.getElementById("eraserToolBtn");
+const clearAnnotationsBtn = document.getElementById("clearAnnotationsBtn");
+const colorSwatchEls = document.querySelectorAll(".colorSwatch");
+const undoAnnotationBtn = document.getElementById("undoAnnotationBtn");
+const redoAnnotationBtn = document.getElementById("redoAnnotationBtn");
+
+let annotateMode = "off"; // "off" | "pen" | "eraser"
+let annotateColor = "#1c1c1e";
+
+/* 필기 되돌리기 / 다시 되돌리기 기록 */
+let annotationUndoStack = [];
+let annotationRedoStack = [];
+
+function updateUndoRedoButtons() {
+  undoAnnotationBtn.disabled = annotationUndoStack.length === 0;
+  redoAnnotationBtn.disabled = annotationRedoStack.length === 0;
+}
+
+function pushAnnotationHistory(action) {
+  annotationUndoStack.push(action);
+  annotationRedoStack = [];
+  updateUndoRedoButtons();
+}
+
+function resetAnnotationHistory() {
+  annotationUndoStack = [];
+  annotationRedoStack = [];
+  updateUndoRedoButtons();
+}
+
+function applyAnnotationActionReverse(action) {
+  const pagesToRedraw = new Set();
+  if (action.type === "draw") {
+    const arr = pageStrokes[action.pageIndex];
+    if (arr) {
+      const idx = arr.lastIndexOf(action.stroke);
+      if (idx !== -1) arr.splice(idx, 1);
+    }
+    pagesToRedraw.add(action.pageIndex);
+  } else if (action.type === "erase") {
+    for (let k = action.entries.length - 1; k >= 0; k--) {
+      const e = action.entries[k];
+      const arr = pageStrokes[e.pageIndex];
+      if (arr) arr.splice(e.index, 0, e.stroke);
+      pagesToRedraw.add(e.pageIndex);
+    }
+  } else if (action.type === "clear") {
+    pageStrokes = action.prevStrokes.map((arr) => arr.slice());
+    pageStrokes.forEach((_, i) => pagesToRedraw.add(i));
+  }
+  pagesToRedraw.forEach((i) => redrawPage(i));
+}
+
+function applyAnnotationActionForward(action) {
+  const pagesToRedraw = new Set();
+  if (action.type === "draw") {
+    if (pageStrokes[action.pageIndex]) pageStrokes[action.pageIndex].push(action.stroke);
+    pagesToRedraw.add(action.pageIndex);
+  } else if (action.type === "erase") {
+    for (let k = 0; k < action.entries.length; k++) {
+      const e = action.entries[k];
+      const arr = pageStrokes[e.pageIndex];
+      if (arr) {
+        const idx = arr.indexOf(e.stroke);
+        if (idx !== -1) arr.splice(idx, 1);
+      }
+      pagesToRedraw.add(e.pageIndex);
+    }
+  } else if (action.type === "clear") {
+    pageStrokes = pageStrokes.map(() => []);
+    pageStrokes.forEach((_, i) => pagesToRedraw.add(i));
+  }
+  pagesToRedraw.forEach((i) => redrawPage(i));
+}
+
+async function undoAnnotationAction() {
+  if (annotationUndoStack.length === 0) return;
+  const action = annotationUndoStack.pop();
+  applyAnnotationActionReverse(action);
+  annotationRedoStack.push(action);
+  updateUndoRedoButtons();
+  await saveAnnotations();
+}
+
+async function redoAnnotationAction() {
+  if (annotationRedoStack.length === 0) return;
+  const action = annotationRedoStack.pop();
+  applyAnnotationActionForward(action);
+  annotationUndoStack.push(action);
+  updateUndoRedoButtons();
+  await saveAnnotations();
+}
+
+undoAnnotationBtn.addEventListener("click", undoAnnotationAction);
+redoAnnotationBtn.addEventListener("click", redoAnnotationAction);
+
+function setAnnotateMode(mode) {
+  annotateMode = mode;
+  penToolBtn.classList.toggle("active", mode === "pen");
+  eraserToolBtn.classList.toggle("active", mode === "eraser");
+  examPagesDiv.classList.toggle("annotating", mode !== "off");
+}
+
+penToolBtn.addEventListener("click", () => {
+  setAnnotateMode(annotateMode === "pen" ? "off" : "pen");
+});
+
+eraserToolBtn.addEventListener("click", () => {
+  setAnnotateMode(annotateMode === "eraser" ? "off" : "eraser");
+});
+
+colorSwatchEls.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    annotateColor = btn.dataset.color;
+    colorSwatchEls.forEach((s) => s.classList.remove("active"));
+    btn.classList.add("active");
+    setAnnotateMode("pen");
+  });
+});
+
+clearAnnotationsBtn.addEventListener("click", async () => {
+  if (annotationCanvases.length === 0) return;
+  if (!confirm("이 문제지의 모든 필기를 지울까요? 되돌리기 버튼으로 복구할 수 있어요.")) return;
+  const prevStrokes = pageStrokes.map((arr) => arr.slice());
+  pageStrokes = pageStrokes.map(() => []);
+  annotationCanvases.forEach((c, i) => redrawPage(i));
+  pushAnnotationHistory({ type: "clear", prevStrokes });
+  await saveAnnotations();
+});
+
+function getCanvasPos(e, canvas) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
+}
+
+// 캔버스를 지우고 저장된 획(스트로크) 데이터를 다시 그린다
+function redrawPage(pageIndex) {
+  const canvas = annotationCanvases[pageIndex];
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.globalCompositeOperation = "source-over";
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  (pageStrokes[pageIndex] || []).forEach((stroke) => {
+    if (!stroke.points || stroke.points.length === 0) return;
+    ctx.strokeStyle = stroke.color;
+    ctx.lineWidth = stroke.width || 3;
+    ctx.beginPath();
+    ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+    for (let p = 1; p < stroke.points.length; p++) {
+      ctx.lineTo(stroke.points[p].x, stroke.points[p].y);
+    }
+    ctx.stroke();
+  });
+}
+
+// 점 하나가 선분 a-b에 얼마나 가까운지 계산 (한 획 지우기용 히트 테스트)
+function distToSegment(p, a, b) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lengthSq = dx * dx + dy * dy;
+  if (lengthSq === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / lengthSq;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+}
+
+function findStrokeAt(pageIndex, pos, threshold) {
+  const strokes = pageStrokes[pageIndex] || [];
+  for (let s = strokes.length - 1; s >= 0; s--) {
+    const pts = strokes[s].points;
+    if (pts.length === 1) {
+      if (Math.hypot(pos.x - pts[0].x, pos.y - pts[0].y) <= threshold) return s;
+      continue;
+    }
+    for (let k = 0; k < pts.length - 1; k++) {
+      if (distToSegment(pos, pts[k], pts[k + 1]) <= threshold) return s;
+    }
+  }
+  return -1;
+}
+
+const ERASE_THRESHOLD = 16;
+
+function setupAnnotationCanvas(canvas, pageIndex) {
+  let drawing = false;
+  let currentStroke = null;
+  let activeMode = null;      // 이번 드래그 시작 시점의 모드 ("pen" | "eraser")
+  let currentErased = [];     // 이번 드래그에서 지운 획들 (되돌리기용)
+  const ctx = canvas.getContext("2d");
+
+  canvas.addEventListener("pointerdown", (e) => {
+    if (annotateMode === "off") return;
+    drawing = true;
+    activeMode = annotateMode;
+    currentErased = [];
+    canvas.setPointerCapture(e.pointerId);
+    const pos = getCanvasPos(e, canvas);
+
+    if (annotateMode === "pen") {
+      currentStroke = { color: annotateColor, width: 3, points: [pos] };
+      pageStrokes[pageIndex].push(currentStroke);
+      ctx.strokeStyle = annotateColor;
+      ctx.lineWidth = 3;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      ctx.moveTo(pos.x, pos.y);
+    } else if (annotateMode === "eraser") {
+      const idx = findStrokeAt(pageIndex, pos, ERASE_THRESHOLD);
+      if (idx !== -1) {
+        const stroke = pageStrokes[pageIndex][idx];
+        pageStrokes[pageIndex].splice(idx, 1);
+        currentErased.push({ pageIndex, index: idx, stroke });
+        redrawPage(pageIndex);
+      }
+    }
+    e.preventDefault();
+  });
+
+  canvas.addEventListener("pointermove", (e) => {
+    if (!drawing) return;
+    const pos = getCanvasPos(e, canvas);
+
+    if (annotateMode === "pen" && currentStroke) {
+      currentStroke.points.push(pos);
+      ctx.lineTo(pos.x, pos.y);
+      ctx.stroke();
+    } else if (annotateMode === "eraser") {
+      const idx = findStrokeAt(pageIndex, pos, ERASE_THRESHOLD);
+      if (idx !== -1) {
+        const stroke = pageStrokes[pageIndex][idx];
+        pageStrokes[pageIndex].splice(idx, 1);
+        currentErased.push({ pageIndex, index: idx, stroke });
+        redrawPage(pageIndex);
+      }
+    }
+    e.preventDefault();
+  });
+
+  function stopDrawing() {
+    if (!drawing) return;
+    drawing = false;
+
+    if (activeMode === "pen" && currentStroke) {
+      pushAnnotationHistory({ type: "draw", pageIndex, stroke: currentStroke });
+    } else if (activeMode === "eraser" && currentErased.length > 0) {
+      pushAnnotationHistory({ type: "erase", entries: currentErased.slice() });
+    }
+
+    currentStroke = null;
+    currentErased = [];
+    activeMode = null;
+    saveAnnotations();
+  }
+  canvas.addEventListener("pointerup", stopDrawing);
+  canvas.addEventListener("pointerleave", stopDrawing);
+  canvas.addEventListener("pointercancel", stopDrawing);
+}
+
+async function saveAnnotations() {
+  if (!currentExamId) return;
+  const meta = await idbGetMeta(currentExamId);
+  if (!meta) return;
+  meta.annotationStrokes = pageStrokes;
+  await saveMetaAndSync(meta);
+}
+
+function applyAnnotations(savedStrokes) {
+  pageStrokes = annotationCanvases.map((_, i) =>
+    (savedStrokes && savedStrokes[i]) ? savedStrokes[i] : []
+  );
+  for (let i = 0; i < annotationCanvases.length; i++) redrawPage(i);
+  resetAnnotationHistory();
+}
+
+/* ---------------------------------------------------------
    다크모드
 --------------------------------------------------------- */
 (function initTheme() {
@@ -402,6 +871,48 @@ themeToggle.addEventListener("click", () => {
   themeToggle.textContent = next === "dark" ? "라이트모드" : "다크모드";
   localStorage.setItem("theme", next);
 });
+
+/* ---------------------------------------------------------
+   전체화면 (브라우저 전체화면, 탭 바가 보이지 않도록)
+--------------------------------------------------------- */
+function updateFullscreenLabel() {
+  fullscreenToggle.textContent = document.fullscreenElement ? "전체화면 종료" : "전체화면";
+}
+
+fullscreenToggle.addEventListener("click", async () => {
+  try {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+    } else {
+      await document.documentElement.requestFullscreen();
+    }
+  } catch (err) {
+    console.error("전체화면 전환 실패", err);
+  }
+});
+
+document.addEventListener("fullscreenchange", updateFullscreenLabel);
+
+/* ---------------------------------------------------------
+   기출 영상 (유튜브)
+--------------------------------------------------------- */
+function extractYouTubeId(url) {
+  if (!url) return null;
+  const match = url.match(
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/
+  );
+  return match ? match[1] : null;
+}
+
+function setupVideo(videoId) {
+  if (videoId) {
+    videoFrame.src = `https://www.youtube.com/embed/${videoId}`;
+    videoSection.style.display = "block";
+  } else {
+    videoFrame.src = "";
+    videoSection.style.display = "none";
+  }
+}
 
 /* ---------------------------------------------------------
    정답 확인 표 가림/보기
@@ -423,6 +934,8 @@ deleteExamBtn.addEventListener("click", async () => {
 
   await idbDeleteMeta(currentExamId);
   await idbDeleteBlob(currentExamId);
+  await idbDeleteBlob(currentExamId + "_answer");
+  if (cloudUser) await Cloud.deleteRemoteExam(cloudUser.uid, currentExamId);
   showHome();
 });
 
@@ -481,6 +994,7 @@ loadBtn.addEventListener("click", async () => {
     examPagesDiv.innerHTML = "";
     zoomLevel = 1;
     applyZoom();
+    setAnnotateMode("off");
     await renderPDFToContainer(examFile, examPagesDiv, 2.2);
 
     if (examPagesDiv.childElementCount === 0) {
@@ -493,10 +1007,15 @@ loadBtn.addEventListener("click", async () => {
     if (answerFile) {
       loadingText.textContent = "정답지를 분석하는 중...";
       extracted = await extractAnswerKey(answerFile);
+      await renderAnswerKeyPDF(answerFile, answerKeyPagesDiv, 1.6);
       keyStatus.textContent = "정답이 자동으로 입력되었습니다. '정답 보기'를 눌러 확인하고, 틀린 항목은 직접 수정하세요.";
     } else {
+      answerKeyPagesDiv.innerHTML = "";
       keyStatus.textContent = "정답지가 없습니다. '정답 보기'를 눌러 정답을 직접 입력하세요.";
     }
+
+    const videoId = extractYouTubeId(videoUrlInput.value.trim());
+    setupVideo(videoId);
 
     buildAnswerKeyTable(questionCount, extracted);
     buildNavigator(questionCount);
@@ -506,20 +1025,33 @@ loadBtn.addEventListener("click", async () => {
 
     // 저장: 이 문제지는 목록에서 삭제하기 전까지 계속 유지된다
     await idbPutBlob(id, examFile);
-    await idbPutMeta({
-      id,
-      title,
-      questionCount,
-      keyAnswers: extracted,
-      studentAnswers: {},
-      judged: {},
-      wasCorrect: {},
-      mode: currentMode,
-      testSubmitted: false,
-      maxReached: 1,
-      createdAt: Date.now(),
-    });
+    if (answerFile) await idbPutBlob(id + "_answer", answerFile);
+    await saveMetaAndSync(
+      {
+        id,
+        title,
+        questionCount,
+        keyAnswers: extracted,
+        studentAnswers: {},
+        judged: {},
+        wasCorrect: {},
+        mode: currentMode,
+        testSubmitted: false,
+        maxReached: 1,
+        annotationStrokes: [],
+        videoId: videoId || null,
+        createdAt: Date.now(),
+      },
+      { immediate: true }
+    );
 
+    if (cloudUser) {
+      loadingText.textContent = "클라우드에 업로드하는 중...";
+      await Cloud.uploadBlob(cloudUser.uid, id, "exam", examFile);
+      if (answerFile) await Cloud.uploadBlob(cloudUser.uid, id, "answer", answerFile);
+    }
+
+    videoUrlInput.value = "";
     loadStatus.textContent = "";
   } catch (err) {
     console.error(err);
@@ -530,15 +1062,23 @@ loadBtn.addEventListener("click", async () => {
   }
 });
 
-// PDF를 페이지별 캔버스로 렌더링
+// PDF를 페이지별 캔버스로 렌더링 (각 페이지 위에 필기용 캔버스를 겹쳐서 만든다)
+let annotationCanvases = [];
+let pageStrokes = [];
+
 async function renderPDFToContainer(file, container, scale) {
   container.innerHTML = "";
+  annotationCanvases = [];
+  pageStrokes = [];
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
 
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
     const page = await pdf.getPage(pageNum);
     const viewport = page.getViewport({ scale: scale });
+
+    const wrap = document.createElement("div");
+    wrap.className = "examPageWrap";
 
     const canvas = document.createElement("canvas");
     canvas.width = viewport.width;
@@ -547,8 +1087,38 @@ async function renderPDFToContainer(file, container, scale) {
     if (!context) {
       throw new Error("캔버스를 생성할 수 없습니다 (2d context 없음)");
     }
-
     await page.render({ canvasContext: context, viewport: viewport }).promise;
+
+    const annCanvas = document.createElement("canvas");
+    annCanvas.className = "annotation-canvas";
+    annCanvas.width = viewport.width;
+    annCanvas.height = viewport.height;
+    const pageIndex = annotationCanvases.length;
+    pageStrokes.push([]);
+    setupAnnotationCanvas(annCanvas, pageIndex);
+
+    wrap.appendChild(canvas);
+    wrap.appendChild(annCanvas);
+    container.appendChild(wrap);
+    annotationCanvases.push(annCanvas);
+  }
+}
+
+// 정답지(답지) PDF를 단순 이미지로 렌더링 (필기 기능 없이 보기 전용)
+async function renderAnswerKeyPDF(blob, container, scale) {
+  container.innerHTML = "";
+  if (!blob) return;
+  const arrayBuffer = await blob.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    const page = await pdf.getPage(pageNum);
+    const viewport = page.getViewport({ scale: scale });
+    const canvas = document.createElement("canvas");
+    canvas.className = "answerKeyPageCanvas";
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const ctx = canvas.getContext("2d");
+    await page.render({ canvasContext: ctx, viewport: viewport }).promise;
     container.appendChild(canvas);
   }
 }
@@ -686,6 +1256,16 @@ document.querySelectorAll(".choiceBtn").forEach((btn) => {
 // 키보드 1~5로 답 선택, 좌우 화살표로 이전/다음 문제 이동
 document.addEventListener("keydown", (e) => {
   if (solveSection.style.display === "none") return;
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z") {
+    e.preventDefault();
+    undoAnnotationAction();
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === "y" || (e.shiftKey && e.key.toLowerCase() === "z"))) {
+    e.preventDefault();
+    redoAnnotationAction();
+    return;
+  }
   if (["1", "2", "3", "4", "5"].includes(e.key)) {
     selectAnswer(e.key);
   } else if (e.key === "ArrowRight") {
