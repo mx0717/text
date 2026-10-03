@@ -1,8 +1,12 @@
 // ------------------------------------------------------------------
-// 클라우드 동기화 (Firebase Authentication + Firestore + Storage)
+// 클라우드 동기화 (Firebase Authentication + Firestore)
+//
+// Storage는 사용하지 않습니다. (Firebase Storage는 기본 버킷을 만들려면
+// Blaze 요금제/카드 등록이 필요해졌기 때문에, PDF 파일도 Firestore에
+// 작은 조각(청크)으로 나눠 저장합니다. 완전히 무료(Spark) 플랜으로 동작해요.)
 //
 // 아래 firebaseConfig 값을 Firebase 콘솔 > 프로젝트 설정 > 내 앱 에서
-// 복사해 붙여넣으세요. (큰따옴표 안의 내용만 바꾸면 됩니다)
+// 복사해 붙여넣으세요. (storageBucket 값은 이제 필요 없습니다)
 // ------------------------------------------------------------------
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
@@ -20,21 +24,14 @@ import {
   collection,
   deleteDoc,
   onSnapshot,
+  writeBatch,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import {
-  getStorage,
-  ref,
-  uploadBytes,
-  getBytes,
-  deleteObject,
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 
 // ⬇️⬇️⬇️ 여기에 Firebase 콘솔에서 복사한 설정값을 붙여넣으세요 ⬇️⬇️⬇️
 const firebaseConfig = {
   apiKey: "AIzaSyAghbgSZ57amoZnwM10O1uTIXbtbV1rJ8M",
   authDomain: "hanguksa-exam.firebaseapp.com",
   projectId: "hanguksa-exam",
-  storageBucket: "hanguksa-exam.firebasestorage.app",
   messagingSenderId: "996147968420",
   appId: "1:996147968420:web:cc6d710777562d90e9e931",
 };
@@ -43,7 +40,6 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const storage = getStorage(app);
 const provider = new GoogleAuthProvider();
 
 let unsubscribeSnapshot = null;
@@ -93,18 +89,6 @@ export async function pushMeta(uid, examId, meta) {
   }
 }
 
-export async function deleteRemoteExam(uid, examId) {
-  try {
-    await deleteDoc(examDocRef(uid, examId));
-  } catch (e) {
-    console.error("클라우드 문서 삭제 실패", e);
-  }
-  await Promise.all([
-    deleteRemoteBlob(uid, examId, "exam"),
-    deleteRemoteBlob(uid, examId, "answer"),
-  ]);
-}
-
 export async function fetchAllRemoteMetas(uid) {
   const snap = await getDocs(collection(db, "users", uid, "exams"));
   const result = [];
@@ -142,15 +126,58 @@ export function subscribeRemoteChanges(uid, onChange) {
 }
 
 /* ---------------------------------------------------------
-   Storage: 문제지/정답지 PDF 원본
+   파일(PDF)을 Firestore에 base64 청크로 나눠 저장한다.
+   users/{uid}/exams/{examId}/files_{kind}/{0,1,2,...}
+   (kind는 "exam" 또는 "answer")
 --------------------------------------------------------- */
-function blobRef(uid, examId, kind) {
-  return ref(storage, `users/${uid}/exams/${examId}/${kind}.pdf`);
+const CHUNK_CHARS = 700000; // base64 문자 기준, 문서당 약 700KB (1MB 제한보다 여유있게)
+const BATCH_LIMIT = 450;    // Firestore 배치 쓰기 최대 500건보다 여유있게
+
+function fileCollectionRef(uid, examId, kind) {
+  return collection(db, "users", uid, "exams", examId, "files_" + kind);
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result; // "data:application/pdf;base64,AAAA..."
+      const comma = result.indexOf(",");
+      resolve(result.slice(comma + 1));
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function deleteFileChunks(uid, examId, kind) {
+  const snap = await getDocs(fileCollectionRef(uid, examId, kind));
+  const refs = [];
+  snap.forEach((d) => refs.push(d.ref));
+  for (let start = 0; start < refs.length; start += BATCH_LIMIT) {
+    const batch = writeBatch(db);
+    refs.slice(start, start + BATCH_LIMIT).forEach((r) => batch.delete(r));
+    await batch.commit();
+  }
 }
 
 export async function uploadBlob(uid, examId, kind, blob) {
   try {
-    await uploadBytes(blobRef(uid, examId, kind), blob);
+    const base64 = await blobToBase64(blob);
+    const totalChunks = Math.max(1, Math.ceil(base64.length / CHUNK_CHARS));
+
+    await deleteFileChunks(uid, examId, kind); // 이전 조각 정리 (덮어쓰기 대비)
+
+    const colRef = fileCollectionRef(uid, examId, kind);
+    for (let start = 0; start < totalChunks; start += BATCH_LIMIT) {
+      const batch = writeBatch(db);
+      const end = Math.min(start + BATCH_LIMIT, totalChunks);
+      for (let i = start; i < end; i++) {
+        const chunkStr = base64.slice(i * CHUNK_CHARS, (i + 1) * CHUNK_CHARS);
+        batch.set(doc(colRef, String(i)), { data: chunkStr, index: i, total: totalChunks });
+      }
+      await batch.commit();
+    }
     return true;
   } catch (e) {
     console.error("파일 업로드 실패", e);
@@ -160,17 +187,28 @@ export async function uploadBlob(uid, examId, kind, blob) {
 
 export async function downloadBlob(uid, examId, kind) {
   try {
-    const bytes = await getBytes(blobRef(uid, examId, kind));
-    return new Blob([bytes], { type: "application/pdf" });
+    const snap = await getDocs(fileCollectionRef(uid, examId, kind));
+    if (snap.empty) return null;
+    const chunks = [];
+    snap.forEach((d) => chunks.push(d.data()));
+    chunks.sort((a, b) => a.index - b.index);
+    const base64 = chunks.map((c) => c.data).join("");
+    const res = await fetch(`data:application/pdf;base64,${base64}`);
+    return await res.blob();
   } catch (e) {
-    return null; // 원격에 없음 (예: 정답지를 올리지 않은 경우)
+    console.error("파일 다운로드 실패", e);
+    return null;
   }
 }
 
-async function deleteRemoteBlob(uid, examId, kind) {
+export async function deleteRemoteExam(uid, examId) {
   try {
-    await deleteObject(blobRef(uid, examId, kind));
+    await deleteDoc(examDocRef(uid, examId));
   } catch (e) {
-    // 파일이 애초에 없으면 조용히 무시
+    console.error("클라우드 문서 삭제 실패", e);
   }
+  await Promise.all([
+    deleteFileChunks(uid, examId, "exam"),
+    deleteFileChunks(uid, examId, "answer"),
+  ]);
 }
