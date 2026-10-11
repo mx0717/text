@@ -525,20 +525,25 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
   top: 20px;
   z-index: 5;
   display: flex;
+  flex-wrap: wrap;
   width: fit-content;
-  height: 48px;
-  margin: 0 auto;
+  max-width: calc(100% - 16px);
+  min-height: 48px;
+  margin: 8px auto 0;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  padding: 0 14px;
-  border-radius: 980px;
-  background: color-mix(in srgb, var(--panel) 48%, transparent);
-  backdrop-filter: blur(28px) saturate(200%);
-  -webkit-backdrop-filter: blur(28px) saturate(200%);
-  border: 1px solid color-mix(in srgb, var(--hairline) 70%, transparent);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.06);
-  animation: floatIn 0.35s ease both;
+  gap: 8px 14px;
+  padding: 6px 14px;
+  border-radius: 28px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+#zoomGroup {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 #examToolbar button {
@@ -600,26 +605,13 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
   cursor: crosshair;
 }
 
-/* 필기 툴바: 확대 툴바와 동일한 스타일, 시험지 하단에서 화면을 따라다님 */
+/* 필기 도구 그룹: 확대 툴바 안에 함께 배치 */
 #drawToolbar {
-  position: sticky;
-  bottom: 20px;
-  z-index: 5;
   display: flex;
-  width: fit-content;
-  height: 48px;
-  margin: 16px auto 8px;
   align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 0 14px;
-  border-radius: 980px;
-  background: color-mix(in srgb, var(--panel) 48%, transparent);
-  backdrop-filter: blur(28px) saturate(200%);
-  -webkit-backdrop-filter: blur(28px) saturate(200%);
-  border: 1px solid color-mix(in srgb, var(--hairline) 70%, transparent);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.06);
-  animation: floatIn 0.35s ease both;
+  gap: 10px;
+  padding-left: 14px;
+  border-left: 1px solid var(--hairline);
 }
 
 #drawToolbar button {
@@ -663,27 +655,57 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
   background: var(--input-bg);
 }
 
-#colorSwatches {
+/* 색상: 현재 색만 표시하고, 누르면 팝업으로 선택 */
+#colorPicker {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 4px;
-  border-left: 1px solid var(--hairline);
-  border-right: 1px solid var(--hairline);
 }
 
-.colorSwatch {
-  width: 20px;
-  height: 20px;
+#currentColorBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#currentColorDot {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #1c1c1e;
+  border: 1px solid var(--border);
+}
+
+#colorSwatches {
+  position: absolute;
+  top: calc(100% + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 980px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16);
+}
+
+#colorSwatches.hidden { display: none; }
+
+#colorSwatches .colorSwatch {
+  width: 26px;
+  height: 26px;
   padding: 0;
   border-radius: 50%;
   border: 2px solid transparent;
   box-shadow: none;
 }
 
-.colorSwatch.active {
+#colorSwatches .colorSwatch.active {
   border-color: var(--text);
-  transform: scale(1.15);
+  transform: scale(1.1);
 }
 
 #clearAnnotationsBtn {
@@ -847,4 +869,195 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
   width: 100%;
   height: 100%;
   border: 0;
+}
+
+/* ---------------------------------------------------------
+   시험지 추가 버튼 + 팝업
+--------------------------------------------------------- */
+html { -webkit-text-size-adjust: 100%; }
+
+#addExamRow {
+  display: flex;
+  justify-content: center;
+  padding: 18px 0 26px;
+}
+
+#openUploadBtn {
+  padding: 14px 30px;
+  font-size: 16px;
+  font-weight: 700;
+  border-radius: 980px;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: var(--shadow-float);
+}
+
+#uploadModal {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: fadeSlideUp 0.2s ease;
+}
+
+#uploadModal.hidden { display: none; }
+
+#uploadModal #uploadSection {
+  width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  overflow-y: auto;
+  margin: 0;
+}
+
+#uploadHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+#uploadHeader h2 { margin: 0; font-size: 18px; }
+
+#closeUploadBtn {
+  background: var(--input-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 4px 11px;
+}
+
+#uploadSection input[type="text"],
+#uploadSection input[type="number"] { max-width: 100%; }
+
+#loadBtnRow { text-align: center; }
+
+/* ---------------------------------------------------------
+   시험 목록: 가로로 길게, 세로로 정렬 / 모드별 색 구분
+--------------------------------------------------------- */
+#examList {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.exam-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  width: 100%;
+  padding: 18px 22px;
+  border-left: 6px solid var(--card-accent, var(--accent));
+}
+
+.exam-card.mode-free { --card-accent: var(--good); --card-soft: var(--good-soft); }
+.exam-card.mode-test { --card-accent: var(--bad);  --card-soft: var(--bad-soft); }
+
+.exam-card .exam-card-info { flex: 1; min-width: 0; }
+
+.exam-card .exam-mode-badge {
+  background: var(--card-soft, var(--accent-soft));
+  color: var(--card-accent, var(--accent));
+}
+
+.exam-card .exam-date { margin-bottom: 0; }
+
+.exam-card .exam-card-buttons { flex-shrink: 0; }
+
+.exam-card .exam-card-buttons button {
+  flex: none;
+  padding: 8px 18px;
+}
+
+.exam-card .renameExamBtn {
+  background: var(--input-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+/* 카드: 이름 옆에 자유/시험 배지, 이름 변경은 오른쪽 상단 */
+.exam-card .exam-card-info { padding-right: 90px; }
+
+.exam-card .exam-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 6px;
+}
+
+.exam-card .exam-title {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  word-break: normal;
+}
+
+.exam-card .exam-mode-badge {
+  flex: none;
+  margin-bottom: 0;
+  padding: 2px 10px;
+}
+
+.exam-card .exam-card-buttons { align-self: flex-end; }
+
+.exam-card .renameExamBtn {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+
+/* ---------------------------------------------------------
+   모바일 (폰 화면) 대응
+--------------------------------------------------------- */
+@media (max-width: 768px) {
+  body { padding: 14px 12px 60px; }
+  section { padding: 16px 14px; border-radius: 16px; }
+
+  input[type="text"], input[type="number"] { font-size: 16px; } /* iOS 자동 확대 방지 */
+
+  #topBar { flex-wrap: wrap; }
+  #accountBar { flex-basis: 100%; margin-right: 0; }
+  #accountEmail { max-width: 55vw; }
+
+  /* 시험 목록 카드: 세로로 쌓기 */
+  .exam-card { flex-direction: column; align-items: stretch; gap: 12px; padding: 16px; }
+  .exam-card .exam-card-buttons { width: 100%; }
+  .exam-card .exam-card-buttons button { flex: 1; padding: 9px 0; }
+
+  /* 풀이 화면: 시험지 위, 답 선택 패널은 화면 아래에 붙여서 항상 보이게 */
+  #workArea { flex-direction: column; gap: 12px; }
+  #examPanel { flex: none; width: 100%; }
+  #solvePanel {
+    flex: none;
+    width: 100%;
+    position: sticky;
+    top: auto;
+    bottom: 0;
+    z-index: 20;
+    max-height: 42vh;
+    overflow-y: auto;
+    padding: 12px 10px;
+    border-radius: 16px 16px 0 0;
+  }
+  #bigButtons { flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+  .choiceBtn { width: 46px; }
+  #currentQLabel { margin-bottom: 10px; font-size: 15px; }
+
+  /* 확대+필기 통합 툴바 */
+  #examToolbar { top: 8px; padding: 6px 10px; gap: 6px 10px; }
+  #drawToolbar { padding-left: 0; border-left: 0; gap: 6px; flex-wrap: wrap; justify-content: center; }
+  .exam-card .exam-card-buttons { align-self: stretch; }
+
+  #keyWrapper, #answerKeyTable { overflow-x: auto; }
+  #videoWrap { max-width: 100%; }
 }

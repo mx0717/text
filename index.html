@@ -2,6 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>한국사 풀이</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -25,7 +26,16 @@
 
   <!-- 홈 화면: 문제지 추가 + 저장된 문제지 목록 -->
   <section id="homeSection">
+    <div id="addExamRow">
+      <button id="openUploadBtn" type="button">＋ 한국사 시험지 추가</button>
+    </div>
+
+    <div id="uploadModal" class="hidden">
     <section id="uploadSection">
+      <div id="uploadHeader">
+        <h2>한국사 시험지 추가</h2>
+        <button id="closeUploadBtn" type="button" aria-label="닫기">✕</button>
+      </div>
       <div>
         <label>문제지 PDF: <input type="file" id="examFile" accept="application/pdf"></label>
       </div>
@@ -55,6 +65,7 @@
       </div>
       <p id="loadStatus"></p>
     </section>
+    </div>
 
     <div id="examList"></div>
   </section>
@@ -76,28 +87,33 @@
       <div id="workArea">
         <div id="examPanel">
           <div id="examToolbar">
-            <button id="zoomOutBtn" type="button">－</button>
-            <span id="zoomLevelLabel">100%</span>
-            <button id="zoomInBtn" type="button">＋</button>
+            <div id="zoomGroup">
+              <button id="zoomOutBtn" type="button">－</button>
+              <span id="zoomLevelLabel">100%</span>
+              <button id="zoomInBtn" type="button">＋</button>
+            </div>
+            <div id="drawToolbar">
+              <button id="penToolBtn" type="button" title="펜">✏️</button>
+              <button id="eraserToolBtn" type="button" title="지우개">🧹</button>
+              <div id="undoRedoGroup">
+                <button id="undoAnnotationBtn" type="button" title="되돌리기" disabled>↩️</button>
+                <button id="redoAnnotationBtn" type="button" title="다시 되돌리기" disabled>↪️</button>
+              </div>
+              <div id="colorPicker">
+                <button id="currentColorBtn" type="button" title="색상 변경" aria-haspopup="true" aria-expanded="false"><span id="currentColorDot"></span></button>
+                <div id="colorSwatches" class="hidden">
+                  <button class="colorSwatch active" type="button" data-color="#1c1c1e" style="background:#1c1c1e"></button>
+                  <button class="colorSwatch" type="button" data-color="#ff3b30" style="background:#ff3b30"></button>
+                  <button class="colorSwatch" type="button" data-color="#0a84ff" style="background:#0a84ff"></button>
+                  <button class="colorSwatch" type="button" data-color="#34c759" style="background:#34c759"></button>
+                  <button class="colorSwatch" type="button" data-color="#ff9500" style="background:#ff9500"></button>
+                </div>
+              </div>
+              <button id="clearAnnotationsBtn" type="button" title="모두 지우기">🗑️</button>
+            </div>
           </div>
           <div id="examPagesScroll">
             <div id="examPages"></div>
-          </div>
-          <div id="drawToolbar">
-            <button id="penToolBtn" type="button" title="펜">✏️</button>
-            <button id="eraserToolBtn" type="button" title="지우개">🧹</button>
-            <div id="undoRedoGroup">
-              <button id="undoAnnotationBtn" type="button" title="되돌리기" disabled>↩️</button>
-              <button id="redoAnnotationBtn" type="button" title="다시 되돌리기" disabled>↪️</button>
-            </div>
-            <div id="colorSwatches">
-              <button class="colorSwatch active" type="button" data-color="#1c1c1e" style="background:#1c1c1e"></button>
-              <button class="colorSwatch" type="button" data-color="#ff3b30" style="background:#ff3b30"></button>
-              <button class="colorSwatch" type="button" data-color="#0a84ff" style="background:#0a84ff"></button>
-              <button class="colorSwatch" type="button" data-color="#34c759" style="background:#34c759"></button>
-              <button class="colorSwatch" type="button" data-color="#ff9500" style="background:#ff9500"></button>
-            </div>
-            <button id="clearAnnotationsBtn" type="button" title="모두 지우기">🗑️</button>
           </div>
         </div>
 

@@ -21,6 +21,27 @@ const answerFileInput = document.getElementById("answerFile");
 const questionCountInput = document.getElementById("questionCount");
 const loadBtn = document.getElementById("loadBtn");
 const loadStatus = document.getElementById("loadStatus");
+
+/* 시험지 추가 팝업 */
+const uploadModal = document.getElementById("uploadModal");
+const openUploadBtn = document.getElementById("openUploadBtn");
+const closeUploadBtn = document.getElementById("closeUploadBtn");
+
+function openUploadModal() {
+  loadStatus.textContent = "";
+  uploadModal.classList.remove("hidden");
+}
+function closeUploadModal() {
+  uploadModal.classList.add("hidden");
+}
+openUploadBtn.addEventListener("click", openUploadModal);
+closeUploadBtn.addEventListener("click", closeUploadModal);
+uploadModal.addEventListener("click", (e) => {
+  if (e.target === uploadModal) closeUploadModal(); // 바깥(어두운 영역) 클릭 시 닫기
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !uploadModal.classList.contains("hidden")) closeUploadModal();
+});
 const keyStatus = document.getElementById("keyStatus");
 
 const homeSection = document.getElementById("homeSection");
@@ -380,15 +401,16 @@ async function renderExamList() {
 
   metas.forEach((meta) => {
     const card = document.createElement("div");
-    card.className = "exam-card";
+    card.className = "exam-card " + (meta.mode === "test" ? "mode-test" : "mode-free");
 
     const title = document.createElement("div");
     title.className = "exam-title";
     title.textContent = meta.title || "제목 없음";
+    title.title = meta.title || "제목 없음"; // 길어서 ...로 잘려도 마우스를 올리면 전체 이름 표시
 
     const modeBadge = document.createElement("div");
     modeBadge.className = "exam-mode-badge";
-    modeBadge.textContent = meta.mode === "test" ? "시험방식" : "자유문제";
+    modeBadge.textContent = meta.mode === "test" ? "시험" : "자유";
 
     const answeredCount = Object.keys(meta.judged || {}).length;
     const correctCount = Object.keys(meta.judged || {}).filter(
@@ -432,14 +454,39 @@ async function renderExamList() {
       renderExamList();
     });
 
+    const renameBtn = document.createElement("button");
+    renameBtn.className = "renameExamBtn";
+    renameBtn.type = "button";
+    renameBtn.textContent = "이름 변경";
+    renameBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const input = prompt("시험지 이름을 입력하세요", meta.title || "");
+      if (input === null) return;
+      const newTitle = input.trim();
+      if (!newTitle || newTitle === meta.title) return;
+      const latest = await idbGetMeta(meta.id);
+      if (!latest) return;
+      latest.title = newTitle;
+      await saveMetaAndSync(latest);
+      renderExamList();
+    });
+
     btnRow.appendChild(openBtn);
     btnRow.appendChild(delBtn);
 
-    card.appendChild(title);
-    card.appendChild(modeBadge);
-    card.appendChild(meta_);
-    card.appendChild(dateEl);
+    const info = document.createElement("div");
+    info.className = "exam-card-info";
+    const titleRow = document.createElement("div");
+    titleRow.className = "exam-title-row";
+    titleRow.appendChild(title);
+    titleRow.appendChild(modeBadge);
+    info.appendChild(titleRow);
+    info.appendChild(meta_);
+    info.appendChild(dateEl);
+
+    card.appendChild(info);
     card.appendChild(btnRow);
+    card.appendChild(renameBtn); // 카드 오른쪽 상단
     examListDiv.appendChild(card);
   });
 }
@@ -611,6 +658,22 @@ const penToolBtn = document.getElementById("penToolBtn");
 const eraserToolBtn = document.getElementById("eraserToolBtn");
 const clearAnnotationsBtn = document.getElementById("clearAnnotationsBtn");
 const colorSwatchEls = document.querySelectorAll(".colorSwatch");
+const colorPickerEl = document.getElementById("colorPicker");
+const currentColorBtn = document.getElementById("currentColorBtn");
+const currentColorDot = document.getElementById("currentColorDot");
+const colorSwatchesEl = document.getElementById("colorSwatches");
+
+function setColorPopover(open) {
+  colorSwatchesEl.classList.toggle("hidden", !open);
+  currentColorBtn.setAttribute("aria-expanded", open ? "true" : "false");
+}
+currentColorBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  setColorPopover(colorSwatchesEl.classList.contains("hidden"));
+});
+document.addEventListener("click", (e) => {
+  if (!colorPickerEl.contains(e.target)) setColorPopover(false);
+});
 const undoAnnotationBtn = document.getElementById("undoAnnotationBtn");
 const redoAnnotationBtn = document.getElementById("redoAnnotationBtn");
 
@@ -724,6 +787,8 @@ colorSwatchEls.forEach((btn) => {
     annotateColor = btn.dataset.color;
     colorSwatchEls.forEach((s) => s.classList.remove("active"));
     btn.classList.add("active");
+    currentColorDot.style.background = annotateColor;
+    setColorPopover(false);
     setAnnotateMode("pen");
   });
 });
@@ -1105,6 +1170,7 @@ loadBtn.addEventListener("click", async () => {
 
     videoUrlInput.value = "";
     loadStatus.textContent = "";
+    closeUploadModal();
   } catch (err) {
     console.error(err);
     loadStatus.textContent = "불러오는 중 오류가 발생했습니다: " + err.message;
