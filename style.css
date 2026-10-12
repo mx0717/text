@@ -438,13 +438,7 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
   color: var(--muted);
 }
 
-/* 컨트롤 버튼 (초기화/삭제) */
-#controlRow {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 18px;
-}
-
+/* 컨트롤 버튼 (초기화/삭제) - 상단 backRow 왼쪽에 배치 */
 #controlButtons { display: flex; gap: 8px; }
 
 #controlButtons button {
@@ -511,33 +505,40 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
 #examPanel {
   flex: 3;
   min-width: 0;
-  border: 1px solid var(--hairline);
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--radius-md);
-  background: var(--exam-bg);
+  background: #151515;
 }
 
+/* 시험지 스크롤 영역: 자체 경계선 안에서만 스크롤 */
 #examPagesScroll {
-  overflow-x: auto;
+  height: calc(100vh - 150px);
+  min-height: 380px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: var(--radius-md);
+  background: #151515;
 }
 
 #examToolbar {
-  position: sticky;
-  top: 20px;
+  position: relative;
   z-index: 5;
   display: flex;
   flex-wrap: wrap;
   width: fit-content;
   max-width: calc(100% - 16px);
   min-height: 48px;
-  margin: 8px auto 0;
+  margin: 0 auto 10px;
   align-items: center;
   justify-content: center;
   gap: 8px 14px;
   padding: 6px 14px;
   border-radius: 28px;
-  background: var(--bg);
+  background: #151515;
   border: 1px solid var(--border);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 #zoomGroup {
@@ -1017,6 +1018,78 @@ html { -webkit-text-size-adjust: 100%; }
 }
 
 /* ---------------------------------------------------------
+   #151515 어두운 패널 (툴바 / 시험지 패널 / 답 선택 패널)
+   - 이 영역 안에서는 색 변수를 어두운 값으로 덮어써서 글자/버튼이 읽히도록 한다
+--------------------------------------------------------- */
+#examPanel, #examToolbar, #solvePanel {
+  --panel: #151515;
+  --bg: #151515;
+  --exam-bg: #151515;
+  --input-bg: #2c2c2e;
+  --text: #f2f2f7;
+  --muted: #98989d;
+  --border: rgba(255, 255, 255, 0.16);
+  --hairline: rgba(255, 255, 255, 0.1);
+  --accent: #409cff;
+  --accent-soft: rgba(64, 156, 255, 0.2);
+  --good: #32d74b;
+  --good-soft: rgba(50, 215, 75, 0.16);
+  --bad: #ff453a;
+  --bad-soft: rgba(255, 69, 58, 0.16);
+  color: var(--text);
+}
+
+#solvePanel {
+  background: #151515;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* mainSection: 바깥 경계선/배경 없음 (시험지 영역이 자체 경계선을 가짐) */
+#mainSection {
+  background: none;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+}
+
+/* 풀이 화면 상단: 초기화/삭제 버튼이 가장 왼쪽, 그 다음 목록으로 */
+#backRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* 정답지 왼쪽 위 점수 */
+#keyScore {
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: 12px;
+  padding: 8px 18px;
+  border-radius: 980px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+#keyScore.muted {
+  background: var(--input-bg);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+#keyScore:empty { display: none; }
+
+/* 정답표의 배점 입력칸 */
+.key-cell input.pt-input {
+  width: 36px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ---------------------------------------------------------
    모바일 (폰 화면) 대응
 --------------------------------------------------------- */
 @media (max-width: 768px) {
@@ -1054,10 +1127,11 @@ html { -webkit-text-size-adjust: 100%; }
   #currentQLabel { margin-bottom: 10px; font-size: 15px; }
 
   /* 확대+필기 통합 툴바 */
-  #examToolbar { top: 8px; padding: 6px 10px; gap: 6px 10px; }
+  #examToolbar { padding: 6px 10px; gap: 6px 10px; }
   #drawToolbar { padding-left: 0; border-left: 0; gap: 6px; flex-wrap: wrap; justify-content: center; }
   .exam-card .exam-card-buttons { align-self: stretch; }
 
+  #examPagesScroll { height: 58vh; min-height: 320px; }
   #keyWrapper, #answerKeyTable { overflow-x: auto; }
   #videoWrap { max-width: 100%; }
 }

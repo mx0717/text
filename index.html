@@ -73,17 +73,14 @@
   <!-- 풀이 화면 -->
   <section id="solveSection" style="display:none;">
     <div id="backRow">
+      <div id="controlButtons">
+        <button id="resetProgressBtn" type="button">푼 문제 초기화</button>
+        <button id="deleteExamBtn" type="button">이 문제지 삭제</button>
+      </div>
       <button id="backToListBtn" type="button">← 목록으로</button>
     </div>
 
     <section id="mainSection">
-      <div id="controlRow">
-        <div id="controlButtons">
-          <button id="resetProgressBtn" type="button">푼 문제 초기화</button>
-          <button id="deleteExamBtn" type="button">이 문제지 삭제</button>
-        </div>
-      </div>
-
       <div id="workArea">
         <div id="examPanel">
           <div id="examToolbar">
@@ -147,6 +144,7 @@
     </section>
 
     <section id="keySection">
+      <div id="keyScore"></div>
       <div id="keyHeaderRow">
         <p id="keyStatus"></p>
         <button id="hideKeyBtn" type="button">정답 가리기</button>

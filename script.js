@@ -59,6 +59,7 @@ const navigatorDiv = document.getElementById("navigator");
 const currentQLabel = document.getElementById("currentQLabel");
 const feedbackDiv = document.getElementById("feedback");
 const liveScoreDiv = document.getElementById("liveScore");
+const keyScoreDiv = document.getElementById("keyScore");
 
 const videoUrlInput = document.getElementById("videoUrlInput");
 const videoSection = document.getElementById("videoSection");
@@ -368,11 +369,35 @@ function getKeyAnswersFromDOM() {
   return arr;
 }
 
+function getKeyPointsFromDOM() {
+  const arr = [];
+  for (let i = 1; i <= questionCount; i++) {
+    const el = document.getElementById("pt" + i);
+    const p = el ? parseInt(el.value, 10) : NaN;
+    arr.push(isNaN(p) ? "" : p);
+  }
+  return arr;
+}
+
+// 배점 합계: 맞힌 문항의 배점은 earned, 전체 배점은 total
+function computeScore() {
+  let earned = 0, total = 0, missing = 0;
+  for (let i = 1; i <= questionCount; i++) {
+    const el = document.getElementById("pt" + i);
+    const p = el ? parseInt(el.value, 10) : NaN;
+    if (isNaN(p)) { missing++; continue; }
+    total += p;
+    if (judged[i] && wasCorrect[i]) earned += p;
+  }
+  return { earned, total, missing };
+}
+
 async function saveCurrentMeta() {
   if (!currentExamId) return;
   const meta = await idbGetMeta(currentExamId);
   if (!meta) return;
   meta.keyAnswers = getKeyAnswersFromDOM();
+  meta.keyPoints = getKeyPointsFromDOM();
   meta.studentAnswers = studentAnswers;
   meta.judged = judged;
   meta.wasCorrect = wasCorrect;
@@ -574,7 +599,8 @@ async function openExam(id) {
     await renderPDFToContainer(blob, examPagesDiv, 2.2);
     applyAnnotations(meta.annotationStrokes);
 
-    buildAnswerKeyTable(questionCount, meta.keyAnswers || new Array(questionCount).fill(""));
+    buildAnswerKeyTable(questionCount, meta.keyAnswers || new Array(questionCount).fill(""), meta.keyPoints || []);
+    let pointsBackfilled = false;
 
     let answerBlob = await idbGetBlob(id + "_answer");
     if (!answerBlob && cloudUser) {
@@ -593,6 +619,20 @@ async function openExam(id) {
       if (answerBlob) await idbPutBlob(id + "_answer", answerBlob);
     }
     await renderAnswerKeyPDF(answerBlob, answerKeyPagesDiv, 1.6);
+
+    // 배점 정보가 없던 예전 문제지: 저장된 정답지에서 배점만 다시 읽어 채운다
+    if (!meta.keyPoints && answerBlob) {
+      try {
+        const r = await extractAnswerKey(answerBlob);
+        r.points.forEach((p, idx) => {
+          const el = document.getElementById("pt" + (idx + 1));
+          if (el && p !== "") el.value = p;
+        });
+        pointsBackfilled = true;
+      } catch (e) {
+        console.error("배점 추출 실패", e);
+      }
+    }
 
     setupVideo(meta.videoId);
 
@@ -613,6 +653,7 @@ async function openExam(id) {
     updateModeUI();
     setCurrentQuestion(1);
     updateLiveScore();
+    if (pointsBackfilled) await saveCurrentMeta();
     keyStatus.textContent = testSubmitted || currentMode === "free"
       ? "정답이 저장되어 있습니다. '정답 보기'를 눌러 확인하거나 수정하세요."
       : "시험방식 풀이 중입니다. 모든 문제를 제출하면 정답을 확인할 수 있어요.";
@@ -1103,11 +1144,15 @@ loadBtn.addEventListener("click", async () => {
     }
 
     let extracted = new Array(questionCount).fill("");
+    let extractedPoints = new Array(questionCount).fill("");
     if (answerFile) {
       loadingText.textContent = "정답지를 분석하는 중...";
-      extracted = await extractAnswerKey(answerFile);
+      const result = await extractAnswerKey(answerFile);
+      extracted = result.answers;
+      extractedPoints = result.points;
       await renderAnswerKeyPDF(answerFile, answerKeyPagesDiv, 1.6);
-      keyStatus.textContent = "정답이 자동으로 입력되었습니다. '정답 보기'를 눌러 확인하고, 틀린 항목은 직접 수정하세요.";
+      const ptsFound = extractedPoints.filter((p) => p !== "").length;
+      keyStatus.textContent = `정답이 자동으로 입력되었습니다 (배점 ${ptsFound}/${questionCount}문항 인식). '정답 보기'를 눌러 확인하고, 틀린 항목은 직접 수정하세요.`;
     } else {
       answerKeyPagesDiv.innerHTML = "";
       keyStatus.textContent = "정답지가 없습니다. '정답 보기'를 눌러 정답을 직접 입력하세요.";
@@ -1116,7 +1161,7 @@ loadBtn.addEventListener("click", async () => {
     const videoId = extractYouTubeId(videoUrlInput.value.trim());
     setupVideo(videoId);
 
-    buildAnswerKeyTable(questionCount, extracted);
+    buildAnswerKeyTable(questionCount, extracted, extractedPoints);
     buildNavigator(questionCount);
     updateModeUI();
     setCurrentQuestion(1);
@@ -1131,6 +1176,7 @@ loadBtn.addEventListener("click", async () => {
         title,
         questionCount,
         keyAnswers: extracted,
+        keyPoints: extractedPoints,
         studentAnswers: {},
         judged: {},
         wasCorrect: {},
@@ -1241,7 +1287,7 @@ async function renderAnswerKeyPDF(blob, container, scale) {
   }
 }
 
-// 정답지 PDF에서 정답 자동 추출 (정확도 개선판)
+// 정답지 PDF에서 정답 + 배점 자동 추출 -> { answers: [...], points: [...] }
 async function extractAnswerKey(file) {
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
@@ -1254,38 +1300,49 @@ async function extractAnswerKey(file) {
   }
 
   const circledMap = { "①": "1", "②": "2", "③": "3", "④": "4", "⑤": "5" };
+  const emptyPoints = () => new Array(questionCount).fill("");
 
-  // 전략 1 (우선): "문항번호 + 정답(원문자)" 짝 패턴을 직접 찾는다 (예: "1 ③", "11 ⑤").
-  // 정답은 항상 원문자(①~⑤)로만 표기되고 배점(1~3)은 일반 숫자이므로,
-  // group2를 원문자로만 한정하면 배점 숫자가 다음 문항번호와 뒤섞여 오탐되는 문제가 사라진다.
-  const pattern = /(\d{1,2})\s*[.)]?\s*([①②③④⑤])/g;
+  // 전략 1 (우선): "문항번호 + 정답(원문자) + 배점" 패턴 (예: "1 ③ 2", "11 ⑤ 3").
+  // 정답은 원문자로만 표기되므로 번호와 정답을 짝지을 수 있고,
+  // 정답 바로 오른쪽의 한 자리 숫자를 배점으로 읽는다.
+  // (바로 뒤 숫자가 다음 문항 번호인 경우 - 즉 그 뒤에 원문자가 이어지면 - 배점으로 보지 않는다.)
+  const pattern = /(\d{1,2})\s*[.)]?\s*([①②③④⑤])(?:\s*(\d)(?!\d)(?!\s*[.)]?\s*[①②③④⑤]))?/g;
   const found = {};
+  const foundPts = {};
   let match;
   while ((match = pattern.exec(fullText)) !== null) {
     const qNum = parseInt(match[1], 10);
-    const ans = circledMap[match[2]];
     if (qNum >= 1 && qNum <= questionCount && !found[qNum]) {
-      found[qNum] = ans;
+      found[qNum] = circledMap[match[2]];
+      if (match[3]) {
+        const pts = parseInt(match[3], 10);
+        if (pts >= 1 && pts <= 5) foundPts[qNum] = pts;
+      }
     }
   }
   if (Object.keys(found).length >= questionCount * 0.8) {
-    const result = [];
-    for (let i = 1; i <= questionCount; i++) result.push(found[i] || "");
-    return result;
+    const answers = [];
+    const points = [];
+    for (let i = 1; i <= questionCount; i++) {
+      answers.push(found[i] || "");
+      points.push(foundPts[i] !== undefined ? foundPts[i] : "");
+    }
+    return { answers, points };
   }
 
-  // 전략 2 (보조): 원문자가 문항 수 이상 등장하면 등장 순서를 1번~N번으로 가정한다.
+  // 전략 2 (보조): 원문자가 문항 수 이상 등장하면 등장 순서를 1번~N번으로 가정한다. (배점은 알 수 없음)
   const circledMatches = fullText.match(/[①②③④⑤]/g) || [];
   if (circledMatches.length >= questionCount) {
-    return circledMatches.slice(0, questionCount).map((c) => circledMap[c]);
+    return { answers: circledMatches.slice(0, questionCount).map((c) => circledMap[c]), points: emptyPoints() };
   }
 
   // 전략 3: 실패 시 빈 값 (수동 입력)
-  return new Array(questionCount).fill("");
+  return { answers: new Array(questionCount).fill(""), points: emptyPoints() };
 }
 
 // 정답 입력 표 (자동 추출 결과로 채워짐, 수정 가능)
-function buildAnswerKeyTable(n, answers) {
+function buildAnswerKeyTable(n, answers, points) {
+  points = points || [];
   answerKeyTableDiv.innerHTML = "";
   for (let i = 1; i <= n; i++) {
     const cell = document.createElement("div");
@@ -1304,8 +1361,24 @@ function buildAnswerKeyTable(n, answers) {
       saveCurrentMeta();
     });
 
+    // 배점 입력 (정답지에서 자동 인식, 수정 가능)
+    const ptInput = document.createElement("input");
+    ptInput.type = "text";
+    ptInput.inputMode = "numeric";
+    ptInput.maxLength = 2;
+    ptInput.className = "pt-input";
+    ptInput.id = "pt" + i;
+    ptInput.placeholder = "배점";
+    ptInput.title = i + "번 배점";
+    ptInput.value = points[i - 1] === undefined || points[i - 1] === "" ? "" : points[i - 1];
+    ptInput.addEventListener("change", () => {
+      updateLiveScore();
+      saveCurrentMeta();
+    });
+
     cell.appendChild(label);
     cell.appendChild(input);
+    cell.appendChild(ptInput);
     answerKeyTableDiv.appendChild(cell);
   }
 }
@@ -1371,9 +1444,18 @@ document.querySelectorAll(".choiceBtn").forEach((btn) => {
   });
 });
 
-// 키보드 1~5로 답 선택, 좌우 화살표로 이전/다음 문제 이동
+// 키보드: 1~5 = 답 선택, ← → = 이전/다음 문제 (입력칸에 글자를 입력 중일 때는 동작하지 않음)
+function isTypingTarget(el) {
+  if (!el || !el.tagName) return false;
+  const tag = el.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
+}
+
 document.addEventListener("keydown", (e) => {
   if (solveSection.style.display === "none") return;
+  if (!uploadModal.classList.contains("hidden")) return;
+  if (isTypingTarget(e.target)) return;
+
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z") {
     e.preventDefault();
     undoAnnotationAction();
@@ -1384,11 +1466,19 @@ document.addEventListener("keydown", (e) => {
     redoAnnotationAction();
     return;
   }
-  if (["1", "2", "3", "4", "5"].includes(e.key)) {
-    selectAnswer(e.key);
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+  // 윗줄 숫자키(Digit1~5)와 숫자패드(Numpad1~5) 모두 지원
+  const m = /^(?:Digit|Numpad)([1-5])$/.exec(e.code || "");
+  const digit = m ? m[1] : (["1", "2", "3", "4", "5"].includes(e.key) ? e.key : null);
+  if (digit) {
+    e.preventDefault();
+    selectAnswer(digit);
   } else if (e.key === "ArrowRight") {
+    e.preventDefault();
     if (currentQuestion < questionCount) setCurrentQuestion(currentQuestion + 1);
   } else if (e.key === "ArrowLeft") {
+    e.preventDefault();
     if (currentQuestion > 1) setCurrentQuestion(currentQuestion - 1);
   }
 });
@@ -1467,6 +1557,27 @@ function updateLiveScore() {
   } else {
     liveScoreDiv.textContent = `맞은 개수: ${correctCountLive} / ${answeredCountLive} (전체 ${questionCount}문항 중 ${answeredCountLive}문항 풀이)`;
   }
+  updateKeyScore();
+}
+
+// 정답지 왼쪽 위 점수 표시
+// 자유문제: 푸는 즉시 점수가 쌓인다 / 시험방식: 제출 후 최종 점수를 보여준다
+function updateKeyScore() {
+  if (!keyScoreDiv) return;
+  if (currentMode === "test" && !testSubmitted) {
+    keyScoreDiv.className = "muted";
+    keyScoreDiv.textContent = "시험방식: 모든 문제를 제출하면 최종 점수를 확인할 수 있어요";
+    return;
+  }
+  const { earned, total, missing } = computeScore();
+  if (total === 0) {
+    keyScoreDiv.className = "muted";
+    keyScoreDiv.textContent = "배점 정보가 없어요. 정답표의 '배점' 칸에 입력하면 점수가 계산돼요";
+    return;
+  }
+  keyScoreDiv.className = "";
+  const label = currentMode === "test" ? "최종 점수" : "현재 점수";
+  keyScoreDiv.textContent = `${label}: ${earned}점 / ${total}점` + (missing ? ` (배점 미입력 ${missing}문항 제외)` : "");
 }
 
 // 시험방식: 제출하면 그동안 고른 답을 한 번에 채점한다
@@ -1500,7 +1611,9 @@ async function finishTest() {
   if (judged[currentQuestion]) showFeedback(currentQuestion);
   await saveCurrentMeta();
 
-  alert(`채점 완료! ${questionCount}문항 중 ${correctCountLive}개 정답입니다. 이제 문항을 자유롭게 오가며 정답을 확인할 수 있어요.`);
+  const sc = computeScore();
+  const scoreText = sc.total > 0 ? ` 최종 점수는 ${sc.earned}점 / ${sc.total}점이에요.` : "";
+  alert(`채점 완료! ${questionCount}문항 중 ${correctCountLive}개 정답입니다.${scoreText} 이제 문항을 자유롭게 오가며 정답을 확인할 수 있어요.`);
 }
 
 submitTestBtn.addEventListener("click", finishTest);
