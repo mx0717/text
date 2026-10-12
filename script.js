@@ -1560,13 +1560,14 @@ function updateLiveScore() {
   updateKeyScore();
 }
 
-// 정답지 왼쪽 위 점수 표시
+// 답 선택 패널 안 점수 표시
 // 자유문제: 푸는 즉시 점수가 쌓인다 / 시험방식: 제출 후 최종 점수를 보여준다
 function updateKeyScore() {
   if (!keyScoreDiv) return;
   if (currentMode === "test" && !testSubmitted) {
-    keyScoreDiv.className = "muted";
-    keyScoreDiv.textContent = "시험방식: 모든 문제를 제출하면 최종 점수를 확인할 수 있어요";
+    // 시험방식은 제출 전에는 점수를 보여주지 않는다
+    keyScoreDiv.className = "";
+    keyScoreDiv.textContent = "";
     return;
   }
   const { earned, total, missing } = computeScore();

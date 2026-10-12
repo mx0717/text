@@ -73,11 +73,11 @@
   <!-- 풀이 화면 -->
   <section id="solveSection" style="display:none;">
     <div id="backRow">
+      <button id="backToListBtn" type="button">← 목록으로</button>
       <div id="controlButtons">
         <button id="resetProgressBtn" type="button">푼 문제 초기화</button>
         <button id="deleteExamBtn" type="button">이 문제지 삭제</button>
       </div>
-      <button id="backToListBtn" type="button">← 목록으로</button>
     </div>
 
     <section id="mainSection">
@@ -115,21 +115,28 @@
         </div>
 
         <div id="solvePanel">
-          <div id="liveScore">맞은 개수: 0 / 0</div>
-          <div id="navigator"></div>
-          <div id="currentQLabel"></div>
-          <div id="bigButtons">
-            <button class="choiceBtn" data-choice="1">1</button>
-            <button class="choiceBtn" data-choice="2">2</button>
-            <button class="choiceBtn" data-choice="3">3</button>
-            <button class="choiceBtn" data-choice="4">4</button>
-            <button class="choiceBtn" data-choice="5">5</button>
+          <div id="scoreArea">
+            <div id="liveScore">맞은 개수: 0 / 0</div>
+            <div id="keyScore"></div>
           </div>
-          <div id="feedback"></div>
-          <button id="submitTestBtn" type="button" style="display:none;">제출하고 채점하기</button>
-          <div id="navButtons">
-            <button id="prevBtn">← 이전 문제</button>
-            <button id="nextBtn">다음 문제 →</button>
+          <div id="navigator"></div>
+          <div id="answerArea">
+            <div id="currentQLabel"></div>
+            <div id="bigButtons">
+              <button class="choiceBtn" data-choice="1">1</button>
+              <button class="choiceBtn" data-choice="2">2</button>
+              <button class="choiceBtn" data-choice="3">3</button>
+              <button class="choiceBtn" data-choice="4">4</button>
+              <button class="choiceBtn" data-choice="5">5</button>
+            </div>
+            <div id="feedback"></div>
+          </div>
+          <div id="solveFooter">
+            <button id="submitTestBtn" type="button" style="display:none;">제출하고 채점하기</button>
+            <div id="navButtons">
+              <button id="prevBtn">← 이전 문제</button>
+              <button id="nextBtn">다음 문제 →</button>
+            </div>
           </div>
         </div>
       </div>
@@ -144,7 +151,6 @@
     </section>
 
     <section id="keySection">
-      <div id="keyScore"></div>
       <div id="keyHeaderRow">
         <p id="keyStatus"></p>
         <button id="hideKeyBtn" type="button">정답 가리기</button>
