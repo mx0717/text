@@ -2,6 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
+  <meta name="color-scheme" content="dark">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>한국사 풀이</title>
   <link rel="stylesheet" href="style.css">
@@ -16,11 +17,10 @@
       <button id="signOutBtn" type="button" style="display:none;">로그아웃</button>
     </div>
     <button id="fullscreenToggle" type="button">전체화면</button>
-    <button id="themeToggle" type="button">다크모드</button>
   </div>
 
   <div id="loadingOverlay" class="hidden">
-    <div class="spinner"></div>
+    <div class="loading-dots" aria-hidden="true"><span></span><span></span><span></span></div>
     <p id="loadingText">불러오는 중...</p>
   </div>
 
@@ -88,6 +88,7 @@
               <button id="zoomOutBtn" type="button">－</button>
               <span id="zoomLevelLabel">100%</span>
               <button id="zoomInBtn" type="button">＋</button>
+              <button id="followBtn" type="button" title="문제 따라가기">🎯 문제 따라가기</button>
             </div>
             <div id="drawToolbar">
               <button id="penToolBtn" type="button" title="펜">✏️</button>
@@ -115,11 +116,6 @@
         </div>
 
         <div id="solvePanel">
-          <div id="scoreArea">
-            <div id="liveScore">맞은 개수: 0 / 0</div>
-            <div id="keyScore"></div>
-          </div>
-          <div id="navigator"></div>
           <div id="answerArea">
             <div id="currentQLabel"></div>
             <div id="bigButtons">
@@ -130,14 +126,17 @@
               <button class="choiceBtn" data-choice="5">5</button>
             </div>
             <div id="feedback"></div>
-          </div>
-          <div id="solveFooter">
             <button id="submitTestBtn" type="button" style="display:none;">제출하고 채점하기</button>
             <div id="navButtons">
               <button id="prevBtn">← 이전 문제</button>
               <button id="nextBtn">다음 문제 →</button>
             </div>
           </div>
+          <div id="scoreArea">
+            <div id="liveScore">맞은 개수: 0 / 0</div>
+            <div id="keyScore"></div>
+          </div>
+          <div id="navigator"></div>
         </div>
       </div>
     </section>

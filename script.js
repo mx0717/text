@@ -67,7 +67,6 @@ const videoFrame = document.getElementById("videoFrame");
 
 const fullscreenToggle = document.getElementById("fullscreenToggle");
 
-const themeToggle = document.getElementById("themeToggle");
 const keyWrapper = document.getElementById("keyWrapper");
 const revealKeyBtn = document.getElementById("revealKeyBtn");
 const hideKeyBtn = document.getElementById("hideKeyBtn");
@@ -242,6 +241,17 @@ const zoomInBtn = document.getElementById("zoomInBtn");
 const zoomOutBtn = document.getElementById("zoomOutBtn");
 const zoomLevelLabel = document.getElementById("zoomLevelLabel");
 let zoomLevel = 1;
+
+/* 문제 위치 추적: 시험지 PDF의 글자 위치에서 "1." "2." 같은 문항 번호를 찾아 두고,
+   문제를 넘길 때 그 위치로 스크롤한다 (글자가 들어있는 PDF에서만 동작) */
+const examPagesScroll = document.getElementById("examPagesScroll");
+const followBtn = document.getElementById("followBtn");
+let questionMarkerCandidates = []; // PDF에서 찾은 "번호." 후보들
+let questionPositions = null;      // 문항별 위치 [{page, x, y}] (페이지 안 비율), 못 찾으면 null
+let followMode = localStorage.getItem("followMode") === "1";
+let zoomBeforeFollow = 1;
+let trackingRun = 0;      // 비동기 분석이 겹칠 때 최신 실행만 반영하기 위한 번호
+let trackingBusy = false; // 화면 읽기(OCR) 분석 중 여부
 
 const prevBtn = document.getElementById("prevBtn");
 const nextBtn = document.getElementById("nextBtn");
@@ -597,6 +607,7 @@ async function openExam(id) {
     applyZoom();
     setAnnotateMode("off");
     await renderPDFToContainer(blob, examPagesDiv, 2.2);
+    setupQuestionTracking(meta.questionPositions);
     applyAnnotations(meta.annotationStrokes);
 
     buildAnswerKeyTable(questionCount, meta.keyAnswers || new Array(questionCount).fill(""), meta.keyPoints || []);
@@ -674,6 +685,7 @@ function applyZoom() {
   zoomInBtn.disabled = zoomLevel >= 2.5;
   zoomOutBtn.disabled = zoomLevel <= 1;
   restartAnimation(zoomLevelLabel, "anim-pulse");
+  if (followMode && questionPositions) scrollToQuestion(currentQuestion, false);
 }
 
 // 클래스를 지웠다가 다시 붙여서 CSS 애니메이션이 매번 재생되도록 강제한다
@@ -690,6 +702,400 @@ zoomInBtn.addEventListener("click", () => {
 zoomOutBtn.addEventListener("click", () => {
   zoomLevel = Math.max(1, Math.round((zoomLevel - 0.10) * 100) / 100);
   applyZoom();
+});
+
+// 한 페이지의 글자에서 문항 번호 후보("1." 등)와 그 위치를 모은다
+async function collectQuestionMarkers(page, viewport, pageIndex) {
+  const textContent = await page.getTextContent();
+  const items = textContent.items.filter((it) => typeof it.str === "string");
+  const found = [];
+
+  for (let k = 0; k < items.length; k++) {
+    const it = items[k];
+    const t = it.str.trim();
+    let num = null;
+    const m = /^(\d{1,2})\s*[.．]$/.exec(t) || /^(\d{1,2})\s*[.．]\s+\S/.exec(t);
+    if (m) {
+      num = parseInt(m[1], 10);
+    } else if (/^\d{1,2}$/.test(t)) {
+      // "1" 과 "." 이 따로 나뉘어 있는 경우
+      const next = items[k + 1];
+      if (next && /^\s*[.．]/.test(next.str)) num = parseInt(t, 10);
+    }
+    if (num === null || num < 1 || num > 100) continue;
+
+    // 글자 윗부분의 좌표를 화면 기준(왼쪽 위가 원점)으로 바꿔서 페이지 대비 비율로 저장
+    const [vx, vy] = viewport.convertToViewportPoint(it.transform[4], it.transform[5] + (it.height || 0));
+    found.push({ num, page: pageIndex, x: vx / viewport.width, y: vy / viewport.height });
+  }
+
+  questionMarkerCandidates.push(...keepColumnAligned(found));
+}
+
+// 같은 세로줄(x)에 2개 이상 모여 있는 번호만 문항 번호로 인정 (본문 속 목록 번호 등을 걸러냄)
+function keepColumnAligned(found) {
+  const bucket = (x) => Math.round(x / 0.02);
+  const counts = new Map();
+  found.forEach((c) => counts.set(bucket(c.x), (counts.get(bucket(c.x)) || 0) + 1));
+  const strong = new Set([...counts].filter(([, n]) => n >= 2).map(([b]) => b));
+  return strong.size
+    ? found.filter((c) => strong.has(bucket(c.x)) || strong.has(bucket(c.x) - 1) || strong.has(bucket(c.x) + 1))
+    : found;
+}
+
+// 모은 후보에서 1번~N번 문항의 위치를 정한다
+// 읽는 순서(페이지 → 왼쪽/오른쪽 단 → 위에서 아래)를 따라 번호가 커지도록 뒤에서부터 고른다.
+// (표지의 유의사항 "1. 2. 3." 같은 앞쪽 가짜 후보를 피하기 위해)
+function resolveQuestionPositions(n) {
+  const order = (c) => [c.page, c.x > 0.5 ? 1 : 0, c.y];
+  const cmp = (a, b) => {
+    const A = order(a), B = order(b);
+    for (let i = 0; i < 3; i++) if (A[i] !== B[i]) return A[i] - B[i];
+    return 0;
+  };
+
+  const result = new Array(n).fill(null);
+  let upper = null;
+  let foundCount = 0;
+  for (let q = n; q >= 1; q--) {
+    const pool = questionMarkerCandidates
+      .filter((c) => c.num === q && (!upper || cmp(c, upper) < 0))
+      .sort(cmp);
+    if (pool.length) {
+      const pick = pool[pool.length - 1];
+      result[q - 1] = { page: pick.page, x: pick.x, y: pick.y };
+      upper = pick;
+      foundCount++;
+    }
+  }
+  // 절반 이상 찾지 못하면 신뢰할 수 없으므로 기능을 끈다 (스캔본 PDF 등)
+  return foundCount >= Math.max(3, Math.ceil(n * 0.5)) ? result : null;
+}
+
+function isValidPositions(arr, n) {
+  return Array.isArray(arr) && arr.length === n && arr.filter(Boolean).length >= Math.max(3, Math.ceil(n * 0.5));
+}
+
+// 문항 위치를 확정하고, '따라가기'가 켜져 있으면 200%로 확대한다
+function applyQuestionPositions(positions) {
+  questionPositions = positions;
+  if (followMode && questionPositions && solveSection.style.display !== "none") {
+    zoomBeforeFollow = zoomLevel;
+    zoomLevel = 2;
+    applyZoom();
+  }
+  refreshFollowUI();
+}
+
+// 시험지를 그린 직후 호출
+// 1) 저장해 둔 위치가 있으면 사용  2) PDF에 글자가 있으면 글자에서 찾기  3) 없으면(스캔본) 화면을 읽어서(OCR) 찾기
+function setupQuestionTracking(cachedPositions) {
+  trackingRun++;
+  trackingBusy = false;
+  if (isValidPositions(cachedPositions, questionCount)) {
+    applyQuestionPositions(cachedPositions);
+    return;
+  }
+  const fromText = resolveQuestionPositions(questionCount);
+  applyQuestionPositions(fromText);
+  if (!fromText) startOcrTracking(); // 오래 걸릴 수 있어 기다리지 않고 뒤에서 진행
+}
+
+function refreshFollowUI() {
+  const ok = !!questionPositions;
+  followBtn.disabled = trackingBusy || !ok;
+  followBtn.classList.toggle("active", followMode && ok);
+  if (trackingBusy) return;
+  followBtn.textContent = "🎯 문제 따라가기";
+  followBtn.title = ok
+    ? "문제 따라가기: 켜면 200%로 확대하고, 문제를 넘길 때마다 그 문제 위치로 이동해요"
+    : "이 시험지는 문제 위치를 찾지 못했어요";
+}
+
+// 현재 문제의 시작 위치가 시험지 영역의 왼쪽 위에 오도록 스크롤
+function scrollToQuestion(i, smooth) {
+  if (!followMode || !questionPositions) return;
+  const pos = questionPositions[i - 1];
+  if (!pos) return;
+  const wrap = examPagesDiv.children[pos.page];
+  if (!wrap) return;
+
+  const scrollRect = examPagesScroll.getBoundingClientRect();
+  const wrapRect = wrap.getBoundingClientRect();
+  const top = examPagesScroll.scrollTop + (wrapRect.top - scrollRect.top) + pos.y * wrapRect.height - 28;
+  const left = examPagesScroll.scrollLeft + (wrapRect.left - scrollRect.left) + pos.x * wrapRect.width - 24;
+  examPagesScroll.scrollTo({
+    top: Math.max(0, top),
+    left: Math.max(0, left),
+    behavior: smooth ? "smooth" : "auto",
+  });
+}
+
+// ==OCR-BEGIN==
+/* ---------------------------------------------------------
+   스캔본(그림) PDF: 화면을 읽어서(OCR) 문항 번호 위치 찾기
+   1) 각 줄의 '첫 단어' 영역을 잘라내고  2) 숫자만 읽도록 한 OCR로 읽어서  3) "12." 처럼 마침표가 붙은 것만 문항 번호로 인정
+   (보기 ①②③은 마침표 없이 읽히므로 걸러진다)
+--------------------------------------------------------- */
+function detectMarkerCrops(img, W, H) {
+  const px = img.data;
+  const total = W * H;
+  const dark = new Uint8Array(total);
+  for (let i = 0, p = 0; i < total; i++, p += 4) {
+    dark[i] = px[p] * 0.3 + px[p + 1] * 0.59 + px[p + 2] * 0.11 < 140 ? 1 : 0;
+  }
+
+  // 긴 세로선(단 구분선, 테두리)은 지우고, 가운데 가까운 선을 두 단의 경계로 사용
+  const colInk = new Int32Array(W);
+  for (let y = 0; y < H; y++) {
+    const row = y * W;
+    for (let x = 0; x < W; x++) colInk[x] += dark[row + x];
+  }
+  let splitX = Math.round(W / 2);
+  let bestDist = W * 0.12;
+  for (let x = 0; x < W; x++) {
+    if (colInk[x] > H * 0.5) {
+      for (let y = 0; y < H; y++) dark[y * W + x] = 0;
+      const d = Math.abs(x - W / 2);
+      if (d < bestDist) { bestDist = d; splitX = x; }
+    }
+  }
+
+  const ranges = [
+    [Math.round(W * 0.02), splitX - 1],
+    [splitX + 2, Math.round(W * 0.98)],
+  ];
+  const crops = [];
+
+  for (const [xa, xb] of ranges) {
+    if (xb <= xa) continue;
+
+    // 줄(가로 띠) 찾기
+    const rowInk = new Int32Array(H);
+    for (let y = 0; y < H; y++) {
+      let c = 0;
+      const row = y * W;
+      for (let x = xa; x <= xb; x++) c += dark[row + x];
+      rowInk[y] = c;
+    }
+    const bands = [];
+    let y = 0;
+    while (y < H) {
+      if (rowInk[y] >= 2) {
+        const y0 = y;
+        let last = y;
+        while (y < H && (rowInk[y] >= 2 || y - last <= 2)) {
+          if (rowInk[y] >= 2) last = y;
+          y++;
+        }
+        bands.push([y0, last]);
+      } else {
+        y++;
+      }
+    }
+
+    const heights = bands.map((b) => b[1] - b[0] + 1).filter((h) => h >= 8).sort((a, b) => a - b);
+    if (!heights.length) continue;
+    const med = heights[heights.length >> 1];
+
+    for (const [y0, y1] of bands) {
+      const h = y1 - y0 + 1;
+      if (h < med * 0.5 || h > med * 2.4) continue;
+
+      const colHasInk = (x) => {
+        for (let yy = y0; yy <= y1; yy++) if (dark[yy * W + x]) return true;
+        return false;
+      };
+
+      // 줄의 맨 왼쪽 글자 위치
+      let xl = -1;
+      for (let x = xa; x <= xb; x++) {
+        if (colHasInk(x)) { xl = x; break; }
+      }
+      if (xl < 0) continue;
+
+      // 첫 단어: 글자 사이 간격이 충분히 벌어지는 곳까지
+      const gapMin = Math.max(3, Math.round(h * 0.33));
+      const limit = Math.min(xb, xl + Math.round(h * 4));
+      let xr = xl;
+      let gap = 0;
+      for (let x = xl; x <= limit; x++) {
+        if (colHasInk(x)) { xr = x; gap = 0; }
+        else if (++gap >= gapMin) break;
+      }
+      const w = xr - xl + 1;
+      if (w < h * 0.4 || w > h * 3.4) continue;
+
+      crops.push({
+        x0: Math.max(0, xl - 3),
+        x1: Math.min(W - 1, xr + 3),
+        y0: Math.max(0, y0 - 2),
+        y1: Math.min(H - 1, y1 + 2),
+        xl,
+        yTop: y0,
+      });
+      if (crops.length >= 200) return crops;
+    }
+  }
+  return crops;
+}
+
+// 잘라낸 영역들을 한 장에 세로로 이어 붙인다 (OCR을 페이지당 1번만 돌리기 위해)
+function buildCropStack(pageCanvas, crops) {
+  const pad = 10;
+  const gapY = 14;
+  const items = crops.map((c) => {
+    const w = c.x1 - c.x0 + 1;
+    const h = c.y1 - c.y0 + 1;
+    const f = Math.max(1, Math.min(2, 40 / h));
+    return { c, w, h, dw: Math.round(w * f), dh: Math.round(h * f) };
+  });
+  const width = Math.max(...items.map((it) => it.dw)) + pad * 2;
+  const height = items.reduce((sum, it) => sum + it.dh + gapY, pad);
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, width, height);
+  let y = pad;
+  for (const it of items) {
+    ctx.drawImage(pageCanvas, it.c.x0, it.c.y0, it.w, it.h, pad, y, it.dw, it.dh);
+    it.top = y;
+    it.bottom = y + it.dh;
+    y += it.dh + gapY;
+  }
+  return { canvas, items };
+}
+
+function flattenOcrWords(data) {
+  if (Array.isArray(data.words) && data.words.length) return data.words;
+  const out = [];
+  (data.blocks || []).forEach((b) =>
+    (b.paragraphs || []).forEach((p) => (p.lines || []).forEach((l) => (l.words || []).forEach((w) => out.push(w))))
+  );
+  return out;
+}
+
+// 이어 붙인 이미지의 OCR 결과에서, 각 영역의 첫 단어가 "숫자."이면 문항 번호 후보로 돌려준다
+function parseMarkerWords(words, items, W, H, pageIndex) {
+  const found = [];
+  for (const it of items) {
+    const inside = words.filter((w) => {
+      const cy = (w.bbox.y0 + w.bbox.y1) / 2;
+      return cy >= it.top - 4 && cy <= it.bottom + 4;
+    });
+    if (!inside.length) continue;
+    inside.sort((a, b) => a.bbox.x0 - b.bbox.x0);
+    const m = /^(\d{1,2})\./.exec((inside[0].text || "").trim());
+    if (!m) continue;
+    const num = parseInt(m[1], 10);
+    if (num < 1 || num > 100) continue;
+    found.push({ num, page: pageIndex, x: it.c.xl / W, y: it.c.yTop / H });
+  }
+  return found;
+}
+// ==OCR-END==
+
+let tesseractPromise = null;
+function loadTesseract() {
+  if (window.Tesseract) return Promise.resolve(window.Tesseract);
+  if (!tesseractPromise) {
+    tesseractPromise = new Promise((resolve, reject) => {
+      const el = document.createElement("script");
+      el.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
+      el.onload = () => resolve(window.Tesseract);
+      el.onerror = () => {
+        tesseractPromise = null;
+        reject(new Error("OCR 라이브러리를 불러오지 못했어요 (인터넷 연결 확인)"));
+      };
+      document.head.appendChild(el);
+    });
+  }
+  return tesseractPromise;
+}
+
+// 시험지 페이지들을 읽어서 문항 번호 후보를 모은다
+async function ocrQuestionMarkers(onProgress) {
+  const Tesseract = await loadTesseract();
+  const worker = await Tesseract.createWorker("eng");
+  try {
+    await worker.setParameters({
+      tessedit_char_whitelist: "0123456789.",
+      tessedit_pageseg_mode: "6",
+    });
+    const all = [];
+    const pages = examPagesDiv.children;
+    for (let p = 0; p < pages.length; p++) {
+      if (onProgress) onProgress(p, pages.length);
+      const pageCanvas = pages[p].querySelector("canvas");
+      if (!pageCanvas) continue;
+      const W = pageCanvas.width;
+      const H = pageCanvas.height;
+      const img = pageCanvas.getContext("2d").getImageData(0, 0, W, H);
+      const crops = detectMarkerCrops(img, W, H);
+      if (!crops.length) continue;
+      const stack = buildCropStack(pageCanvas, crops);
+      const { data } = await worker.recognize(stack.canvas);
+      const found = parseMarkerWords(flattenOcrWords(data), stack.items, W, H, p);
+      all.push(...keepColumnAligned(found));
+    }
+    return all;
+  } finally {
+    await worker.terminate();
+  }
+}
+
+async function startOcrTracking() {
+  const run = ++trackingRun;
+  const examId = currentExamId;
+  trackingBusy = true;
+  followBtn.disabled = true;
+  followBtn.textContent = "🎯 문제 위치 분석 중…";
+  followBtn.title = "스캔본 PDF라서 화면을 읽어 문제 위치를 찾는 중이에요 (처음 한 번만, 1분 정도 걸릴 수 있어요)";
+
+  let positions = null;
+  try {
+    const found = await ocrQuestionMarkers((done, total) => {
+      if (run === trackingRun) followBtn.textContent = `🎯 문제 위치 분석 중 ${done + 1}/${total}`;
+    });
+    questionMarkerCandidates = found;
+    positions = resolveQuestionPositions(questionCount);
+    console.info(`문항 위치 인식(OCR): ${positions ? positions.filter(Boolean).length : 0}/${questionCount}문항`);
+  } catch (e) {
+    console.error("문항 위치 분석 실패", e);
+  }
+
+  // 다른 시험지를 열었거나 새로 분석이 시작됐다면 이 결과는 화면에 반영하지 않는다
+  if (run !== trackingRun) return;
+  trackingBusy = false;
+  applyQuestionPositions(positions);
+
+  // 다음에 다시 분석하지 않도록 시험지 정보에 저장 (다른 기기에도 동기화됨)
+  if (positions && examId) {
+    try {
+      const meta = await idbGetMeta(examId);
+      if (meta) {
+        meta.questionPositions = positions;
+        await saveMetaAndSync(meta);
+      }
+    } catch (e) {
+      console.warn("문항 위치 저장 실패(무시)", e);
+    }
+  }
+}
+
+followBtn.addEventListener("click", () => {
+  followMode = !followMode;
+  localStorage.setItem("followMode", followMode ? "1" : "0");
+  if (followMode) {
+    zoomBeforeFollow = zoomLevel;
+    zoomLevel = 2;
+  } else {
+    zoomLevel = zoomBeforeFollow || 1;
+  }
+  applyZoom(); // 켜져 있으면 현재 문제 위치로 함께 이동
+  refreshFollowUI();
 });
 
 /* ---------------------------------------------------------
@@ -994,25 +1400,6 @@ function applyAnnotations(savedStrokes) {
 }
 
 /* ---------------------------------------------------------
-   다크모드
---------------------------------------------------------- */
-(function initTheme() {
-  const saved = localStorage.getItem("theme");
-  const preferDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
-  const theme = saved || (preferDark ? "dark" : "light");
-  document.documentElement.setAttribute("data-theme", theme);
-  themeToggle.textContent = theme === "dark" ? "라이트모드" : "다크모드";
-})();
-
-themeToggle.addEventListener("click", () => {
-  const current = document.documentElement.getAttribute("data-theme");
-  const next = current === "dark" ? "light" : "dark";
-  document.documentElement.setAttribute("data-theme", next);
-  themeToggle.textContent = next === "dark" ? "라이트모드" : "다크모드";
-  localStorage.setItem("theme", next);
-});
-
-/* ---------------------------------------------------------
    전체화면 (브라우저 전체화면, 탭 바가 보이지 않도록)
 --------------------------------------------------------- */
 function updateFullscreenLabel() {
@@ -1136,6 +1523,7 @@ loadBtn.addEventListener("click", async () => {
     applyZoom();
     setAnnotateMode("off");
     await renderPDFToContainer(examFile, examPagesDiv, 2.2);
+    setupQuestionTracking();
 
     if (examPagesDiv.childElementCount === 0) {
       loadStatus.textContent = "문제지 PDF에서 페이지를 찾지 못했습니다. 파일이 올바른지 확인해주세요.";
@@ -1234,6 +1622,7 @@ async function renderPDFToContainer(file, container, scale) {
   container.innerHTML = "";
   annotationCanvases = [];
   pageStrokes = [];
+  questionMarkerCandidates = [];
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
 
@@ -1265,6 +1654,12 @@ async function renderPDFToContainer(file, container, scale) {
     wrap.appendChild(annCanvas);
     container.appendChild(wrap);
     annotationCanvases.push(annCanvas);
+
+    try {
+      await collectQuestionMarkers(page, viewport, pageNum - 1);
+    } catch (e) {
+      console.warn("문항 위치 분석 실패(무시)", e);
+    }
   }
 }
 
@@ -1435,6 +1830,8 @@ function setCurrentQuestion(i) {
   if ((currentMode === "free" || testSubmitted) && judged[i]) {
     showFeedback(i);
   }
+
+  scrollToQuestion(i, true); // '문제 따라가기'가 켜져 있으면 이 문제 위치로 이동
 }
 
 // 큰 버튼 클릭 시 답 선택
