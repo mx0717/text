@@ -1,13 +1,23 @@
+/* 폰트: KBL Jump EB Extended (이 파일과 같은 폴더에 KBLJump_EB_Extended.otf 가 있어야 해요) */
+@font-face {
+  font-family: "KBL Jump";
+  src: url("KBLJump_EB_Extended.otf") format("opentype");
+  font-weight: 100 900; /* 굵기가 한 가지뿐이라 가짜 굵게 처리가 생기지 않도록 */
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   color-scheme: dark; /* 다크 모드 고정 */
   --bg: #000000;
   --panel: #1c1c1e;
-  --border: rgba(255, 255, 255, 0.12);
-  --hairline: rgba(255, 255, 255, 0.08);
+  --border: transparent; /* 경계선(스트로크)은 보이지 않게 */
+  --hairline: transparent;
   --text: #f2f2f7;
   --muted: #98989d;
-  --accent: #409cff;
-  --accent-soft: rgba(64, 156, 255, 0.18);
+  --accent: #ff7a00; /* 진한 주황색 */
+  --accent-soft: rgba(255, 122, 0, 0.2);
+  --on-accent: #1f0d00; /* 주 색상 위 글자색 (흰색으로 바꾸려면 #ffffff) */
   --good: #32d74b;
   --good-soft: rgba(50, 215, 75, 0.16);
   --bad: #ff453a;
@@ -50,7 +60,7 @@
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Apple SD Gothic Neo",
+  font-family: "KBL Jump", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Apple SD Gothic Neo",
     "Malgun Gothic", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   background: var(--bg);
@@ -59,7 +69,7 @@ body {
   margin: 0 auto;
   padding: 24px 20px 80px;
   line-height: 1.5;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.03em; /* 폭이 넓은 글꼴이라 글자 간격을 살짝 좁힘 */
   transition: background 0.2s ease, color 0.2s ease;
 }
 
@@ -100,8 +110,8 @@ body {
 .sync-status.offline { background: var(--muted); }
 .sync-status.idle { background: var(--good, #34c759); box-shadow: 0 0 0 3px color-mix(in srgb, #34c759 20%, transparent); }
 .sync-status.syncing {
-  background: #0a84ff;
-  box-shadow: 0 0 0 3px color-mix(in srgb, #0a84ff 25%, transparent);
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
   animation: syncPulse 1s ease-in-out infinite;
 }
 .sync-status.error { background: var(--bad, #ff3b30); }
@@ -206,8 +216,8 @@ button {
   font-weight: 600;
   cursor: pointer;
   background: var(--accent);
-  color: white;
-  letter-spacing: -0.01em;
+  color: var(--on-accent);
+  letter-spacing: -0.02em;
   transition: opacity 0.15s ease, transform 0.1s ease;
 }
 
@@ -286,11 +296,6 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
   font-size: 13px;
 }
 
-.exam-card .openExamBtn {
-  background: var(--accent);
-  color: #fff;
-}
-
 .exam-card .deleteExamCardBtn {
   background: var(--input-bg);
   color: var(--bad);
@@ -352,24 +357,7 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
   gap: 8px;
 }
 
-.key-cell {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--muted);
-}
 
-.key-cell input {
-  width: 36px;
-  text-align: center;
-  font-size: 14px;
-  background: var(--input-bg);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 980px;
-}
 
 /* 답지 PDF 원본 보기 (있을 경우, 정답표 아래에 표시) */
 #answerKeyPages { margin-top: 18px; }
@@ -487,7 +475,7 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
   flex: 3;
   min-width: 0;
   padding: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid transparent;
   border-radius: var(--radius-lg);
   background: #151515;
 }
@@ -498,9 +486,9 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
   min-height: 380px;
   overflow: auto;
   overscroll-behavior: contain;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid transparent;
   border-radius: calc(var(--radius-lg) - 10px);
-  background: #151515;
+  background: #0d0d0d; /* 경계선 대신 살짝 어두운 바탕으로 시험지 영역을 구분 */
 }
 
 #examToolbar {
@@ -754,7 +742,7 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
 .choiceBtn.selected {
   border-color: var(--accent);
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   animation: popIn 0.2s ease;
 }
 
@@ -830,8 +818,8 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
   animation: dotBounce 1.2s cubic-bezier(0.3, 0, 0.3, 1) infinite;
 }
 
-.loading-dots span:nth-child(2) { background: #bf5af2; color: #bf5af2; animation-delay: 0.15s; }
-.loading-dots span:nth-child(3) { background: #ff375f; color: #ff375f; animation-delay: 0.3s; }
+.loading-dots span:nth-child(2) { animation-delay: 0.15s; }
+.loading-dots span:nth-child(3) { animation-delay: 0.3s; }
 
 @keyframes dotBounce {
   0%, 55%, 100% { transform: translateY(0) scale(1, 1); }
@@ -891,7 +879,7 @@ html { -webkit-text-size-adjust: 100%; }
   font-weight: 700;
   border-radius: 980px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   box-shadow: var(--shadow-float);
 }
 
@@ -955,7 +943,6 @@ html { -webkit-text-size-adjust: 100%; }
   gap: 20px;
   width: 100%;
   padding: 18px 22px;
-  border-left: 6px solid var(--card-accent, var(--accent));
 }
 
 .exam-card.mode-free { --card-accent: var(--good); --card-soft: var(--good-soft); }
@@ -1030,10 +1017,10 @@ html { -webkit-text-size-adjust: 100%; }
   --input-bg: #2c2c2e;
   --text: #f2f2f7;
   --muted: #98989d;
-  --border: rgba(255, 255, 255, 0.16);
-  --hairline: rgba(255, 255, 255, 0.1);
-  --accent: #409cff;
-  --accent-soft: rgba(64, 156, 255, 0.2);
+  --border: transparent;
+  --hairline: transparent;
+  --accent: #ff7a00;
+  --accent-soft: rgba(255, 122, 0, 0.22);
   --good: #32d74b;
   --good-soft: rgba(50, 215, 75, 0.16);
   --bad: #ff453a;
@@ -1043,7 +1030,7 @@ html { -webkit-text-size-adjust: 100%; }
 
 #solvePanel {
   background: #151515;
-  border-color: rgba(255, 255, 255, 0.1);
+  border-color: transparent;
 }
 
 /* mainSection: 바깥 경계선/배경 없음 (시험지 영역이 자체 경계선을 가짐) */
@@ -1060,13 +1047,6 @@ html { -webkit-text-size-adjust: 100%; }
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
-}
-
-/* 정답표의 배점 입력칸 */
-.key-cell input.pt-input {
-  width: 36px;
-  font-size: 12px;
-  color: var(--muted);
 }
 
 /* ---------------------------------------------------------
@@ -1098,7 +1078,7 @@ html { -webkit-text-size-adjust: 100%; }
 #keyScore {
   margin-top: 6px;
   color: var(--accent);
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 800;
   letter-spacing: -0.02em;
 }
@@ -1145,7 +1125,15 @@ html { -webkit-text-size-adjust: 100%; }
 
 #bigButtons { gap: 12px; }
 
-.choiceBtn { width: 56px; height: 56px; }
+.choiceBtn {
+  flex: 1 1 0;
+  align-self: center;
+  width: auto;
+  height: auto;
+  max-width: 88px;
+  aspect-ratio: 1 / 1;
+  font-size: 28px;
+}
 
 #navButtons { gap: 10px; }
 #navButtons button { flex: 1; }
@@ -1177,13 +1165,6 @@ input:focus-visible {
   outline-offset: 2px;
 }
 
-.key-cell {
-  padding: 8px 4px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-md);
-  background: var(--bg);
-}
-
 /* 문제 따라가기 토글 (확대 그룹 안) */
 #examToolbar #followBtn {
   width: auto;
@@ -1197,8 +1178,141 @@ input:focus-visible {
 #examToolbar #followBtn.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
+
+/* ---------------------------------------------------------
+   늘어남/찌그러짐 방지: 창 크기를 바꿔도 버튼이 세로로 늘어나거나 길게 퍼지지 않도록
+--------------------------------------------------------- */
+button {
+  white-space: nowrap;   /* 글자가 두 줄로 꺾여 버튼이 커지는 현상 방지 */
+  flex-shrink: 0;        /* 좁아져도 버튼이 찌그러지지 않게 */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#controlButtons,
+.exam-card .exam-card-buttons { flex-wrap: wrap; }
+
+#navButtons { justify-content: center; }
+#navButtons button { flex: 1 1 0; max-width: 200px; }
+
+#answerArea #submitTestBtn {
+  align-self: center;
+  width: 100%;
+  max-width: 360px;
+}
+
+/* ---------------------------------------------------------
+   틀린 점수 (현재 점수 옆에 작게)
+--------------------------------------------------------- */
+#keyScore .wrong-score {
+  margin-left: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--bad);
+}
+
+/* ---------------------------------------------------------
+   문제지 순서 바꾸기 (카드 윗부분을 길게 눌러 끌기)
+--------------------------------------------------------- */
+.exam-card {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.exam-card.dragging {
+  position: fixed;
+  z-index: 200;
+  margin: 0;
+  transform: scale(1.02);
+  transition: none;
+  box-shadow: var(--shadow-float-hover);
+  cursor: grabbing;
+}
+
+.exam-card.dragging:hover { transform: scale(1.02); }
+
+.exam-card-placeholder {
+  border-radius: var(--radius-lg);
+  background: var(--accent-soft);
+  opacity: 0.5;
+}
+
+body.reordering {
+  cursor: grabbing;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ---------------------------------------------------------
+   마무리 다듬기
+--------------------------------------------------------- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+
+::selection { background: var(--accent-soft); }
+
+/* ---------------------------------------------------------
+   시험지 카드: 카드 전체를 눌러서 입장
+--------------------------------------------------------- */
+.exam-card { cursor: pointer; }
+
+.exam-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* ---------------------------------------------------------
+   정답 수정 칸: 한 줄 타일  [ 번호 | 정답 | 배점 ]
+--------------------------------------------------------- */
+#answerKeyTable {
+  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  gap: 6px;
+}
+
+.key-cell {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 40px;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px 5px 12px;
+  border-radius: 980px;
+  background: var(--input-bg);
+  font-size: 11px;
+  color: var(--muted);
+  transition: background 0.15s ease;
+}
+
+.key-cell:focus-within { background: var(--accent-soft); }
+
+.key-cell input {
+  width: 100%;
+  min-width: 0;
+  padding: 4px 0;
+  border: none;
+  border-radius: 980px;
+  background: transparent;
+  text-align: center;
+}
+
+.key-cell input:focus { outline: none; }
+
+.key-cell input:not(.pt-input) {
+  font-size: 17px;
+  color: var(--accent);
+}
+
+.key-cell input.pt-input {
+  font-size: 12px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.key-cell input.pt-input::placeholder { color: rgba(255, 255, 255, 0.28); }
 
 /* ---------------------------------------------------------
    모바일 (폰 화면) 대응
@@ -1215,8 +1329,8 @@ input:focus-visible {
 
   /* 시험 목록 카드: 세로로 쌓기 */
   .exam-card { flex-direction: column; align-items: stretch; gap: 12px; padding: 16px; }
-  .exam-card .exam-card-buttons { width: 100%; }
-  .exam-card .exam-card-buttons button { flex: 1; padding: 9px 0; }
+  .exam-card .exam-card-buttons { width: 100%; justify-content: flex-end; }
+  .exam-card .exam-card-buttons button { flex: none; padding: 9px 22px; }
 
   /* 풀이 화면: 시험지 위, 답 선택 패널은 화면 아래에 붙여서 항상 보이게 */
   #workArea { flex-direction: column; gap: 12px; }
@@ -1234,7 +1348,7 @@ input:focus-visible {
     border-radius: 24px 24px 0 0;
   }
   #bigButtons { flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
-  .choiceBtn { width: 46px; }
+  .choiceBtn { max-width: 64px; font-size: 22px; }
   #currentQLabel { margin-bottom: 10px; font-size: 15px; }
 
   /* 확대+필기 통합 툴바 */

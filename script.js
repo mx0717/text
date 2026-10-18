@@ -391,15 +391,16 @@ function getKeyPointsFromDOM() {
 
 // 배점 합계: 맞힌 문항의 배점은 earned, 전체 배점은 total
 function computeScore() {
-  let earned = 0, total = 0, missing = 0;
+  let earned = 0, total = 0, missing = 0, lost = 0;
   for (let i = 1; i <= questionCount; i++) {
     const el = document.getElementById("pt" + i);
     const p = el ? parseInt(el.value, 10) : NaN;
     if (isNaN(p)) { missing++; continue; }
     total += p;
     if (judged[i] && wasCorrect[i]) earned += p;
+    else if (judged[i]) lost += p; // 채점했는데 틀린 문항의 배점
   }
-  return { earned, total, missing };
+  return { earned, total, missing, lost };
 }
 
 async function saveCurrentMeta() {
@@ -420,9 +421,159 @@ async function saveCurrentMeta() {
 /* ---------------------------------------------------------
    홈 화면 (문제지 목록)
 --------------------------------------------------------- */
+/* 메인 메뉴 카드에 보여줄 점수 (저장된 풀이 기록 + 배점으로 계산) */
+function computeMetaScore(meta) {
+  const pts = meta.keyPoints || [];
+  let earned = 0, total = 0;
+  for (let i = 1; i <= (meta.questionCount || 0); i++) {
+    const p = parseInt(pts[i - 1], 10);
+    if (isNaN(p)) continue;
+    total += p;
+    if (meta.judged && meta.judged[i] && meta.wasCorrect && meta.wasCorrect[i]) earned += p;
+  }
+  return { earned, total };
+}
+
+/* ---------------------------------------------------------
+   문제지 순서 바꾸기: 카드 윗부분을 길게 누른 채로 끌어서 옮긴다
+--------------------------------------------------------- */
+const REORDER_HOLD_MS = 450;  // 이 시간 이상 눌러야 시작
+const REORDER_ZONE_PX = 64;   // 카드 위쪽 이 높이 안에서만 시작
+let reorderDrag = null;
+let justFinishedReorder = false;
+
+// 끄는 동안에는 터치 화면이 스크롤되지 않게
+document.addEventListener("touchmove", (e) => { if (reorderDrag) e.preventDefault(); }, { passive: false });
+
+function setupCardReorder(card) {
+  let timer = null, sx = 0, sy = 0;
+  const cancelHold = () => { clearTimeout(timer); timer = null; };
+
+  card.addEventListener("contextmenu", (e) => { if (timer || reorderDrag) e.preventDefault(); });
+
+  card.addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    if (e.target.closest("button") || reorderDrag) return;
+    if (e.clientY - card.getBoundingClientRect().top > REORDER_ZONE_PX) return;
+    sx = e.clientX;
+    sy = e.clientY;
+    const pid = e.pointerId;
+    cancelHold();
+    timer = setTimeout(() => { timer = null; startCardDrag(card, pid, sy); }, REORDER_HOLD_MS);
+  });
+  card.addEventListener("pointermove", (e) => {
+    if (timer && Math.hypot(e.clientX - sx, e.clientY - sy) > 8) cancelHold(); // 움직이면 스크롤로 보고 취소
+  });
+  card.addEventListener("pointerup", cancelHold);
+  card.addEventListener("pointercancel", cancelHold);
+  card.addEventListener("pointerleave", () => { if (!reorderDrag) cancelHold(); });
+}
+
+function startCardDrag(card, pointerId, clientY) {
+  const rect = card.getBoundingClientRect();
+  const placeholder = document.createElement("div");
+  placeholder.className = "exam-card-placeholder";
+  placeholder.style.height = rect.height + "px";
+  card.parentNode.insertBefore(placeholder, card);
+
+  card.classList.add("dragging");
+  card.style.width = rect.width + "px";
+  card.style.left = rect.left + "px";
+  card.style.top = rect.top + "px";
+  document.body.classList.add("reordering");
+  try { card.setPointerCapture(pointerId); } catch (e) { /* 무시 */ }
+  if (navigator.vibrate) navigator.vibrate(15);
+
+  reorderDrag = { card, placeholder, grab: clientY - rect.top, y: clientY, raf: 0 };
+  card.addEventListener("pointermove", onCardDragMove);
+  card.addEventListener("pointerup", endCardDrag);
+  card.addEventListener("pointercancel", endCardDrag);
+  reorderDrag.raf = requestAnimationFrame(cardDragLoop);
+}
+
+function onCardDragMove(e) {
+  if (!reorderDrag) return;
+  reorderDrag.y = e.clientY;
+  reorderDrag.card.style.top = (e.clientY - reorderDrag.grab) + "px";
+  updateCardPlaceholder();
+}
+
+// 끌고 있는 카드의 중심 위치에 맞춰 빈자리(placeholder)를 옮긴다
+function updateCardPlaceholder() {
+  const { card, placeholder } = reorderDrag;
+  const r = card.getBoundingClientRect();
+  const cy = r.top + r.height / 2;
+  const others = [...examListDiv.querySelectorAll(".exam-card:not(.dragging)")];
+  const target = others.find((el) => {
+    const b = el.getBoundingClientRect();
+    return b.top + b.height / 2 > cy;
+  });
+  if (target) {
+    if (placeholder.nextElementSibling !== target) examListDiv.insertBefore(placeholder, target);
+  } else if (examListDiv.lastElementChild !== placeholder) {
+    examListDiv.appendChild(placeholder);
+  }
+}
+
+// 화면 위/아래 끝으로 끌면 자동으로 스크롤
+function cardDragLoop() {
+  if (!reorderDrag) return;
+  const margin = 90;
+  let dy = 0;
+  if (reorderDrag.y < margin) dy = -Math.ceil((margin - reorderDrag.y) / 6);
+  else if (reorderDrag.y > window.innerHeight - margin) dy = Math.ceil((reorderDrag.y - (window.innerHeight - margin)) / 6);
+  if (dy) {
+    window.scrollBy(0, dy);
+    updateCardPlaceholder();
+  }
+  reorderDrag.raf = requestAnimationFrame(cardDragLoop);
+}
+
+async function endCardDrag(e) {
+  if (!reorderDrag) return;
+  justFinishedReorder = true;
+  setTimeout(() => { justFinishedReorder = false; }, 350);
+  const { card, placeholder, raf } = reorderDrag;
+  cancelAnimationFrame(raf);
+  card.removeEventListener("pointermove", onCardDragMove);
+  card.removeEventListener("pointerup", endCardDrag);
+  card.removeEventListener("pointercancel", endCardDrag);
+  try { card.releasePointerCapture(e.pointerId); } catch (err) { /* 무시 */ }
+
+  examListDiv.insertBefore(card, placeholder);
+  placeholder.remove();
+  card.classList.remove("dragging");
+  card.style.width = "";
+  card.style.left = "";
+  card.style.top = "";
+  document.body.classList.remove("reordering");
+  reorderDrag = null;
+
+  await saveCardOrder();
+}
+
+// 화면에 보이는 순서대로 order 번호를 저장 (바뀐 문제지만 저장, 다른 기기에도 동기화)
+async function saveCardOrder() {
+  const ids = [...examListDiv.querySelectorAll(".exam-card")].map((c) => c.dataset.examId);
+  for (let i = 0; i < ids.length; i++) {
+    const meta = await idbGetMeta(ids[i]);
+    if (meta && meta.order !== i) {
+      meta.order = i;
+      await saveMetaAndSync(meta);
+    }
+  }
+}
+
 async function renderExamList() {
   const metas = await idbGetAllMeta();
-  metas.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  // 직접 바꾼 순서(order)가 있으면 그대로, 순서가 없는 새 문제지는 맨 위에 최신순
+  metas.sort((a, b) => {
+    const ao = typeof a.order === "number";
+    const bo = typeof b.order === "number";
+    if (ao && bo) return a.order - b.order;
+    if (ao !== bo) return ao ? 1 : -1;
+    return (b.createdAt || 0) - (a.createdAt || 0);
+  });
 
   examListDiv.innerHTML = "";
 
@@ -437,6 +588,7 @@ async function renderExamList() {
   metas.forEach((meta) => {
     const card = document.createElement("div");
     card.className = "exam-card " + (meta.mode === "test" ? "mode-test" : "mode-free");
+    card.dataset.examId = meta.id;
 
     const title = document.createElement("div");
     title.className = "exam-title";
@@ -460,7 +612,13 @@ async function renderExamList() {
           hour: "2-digit", minute: "2-digit",
         })
       : "";
-    meta_.textContent = `${meta.questionCount}문항 · ${answeredCount}/${meta.questionCount} 풀이 · ${correctCount}개 정답`;
+    let metaText = `${meta.questionCount}문항 · ${answeredCount}/${meta.questionCount} 풀이 · ${correctCount}개 정답`;
+    // 점수: 자유문제는 푼 만큼, 시험방식은 제출한 뒤에만 표시
+    const sc = computeMetaScore(meta);
+    if (sc.total > 0 && (meta.mode !== "test" || meta.testSubmitted)) {
+      metaText += ` · ${sc.earned}점 / ${sc.total}점`;
+    }
+    meta_.textContent = metaText;
 
     const dateEl = document.createElement("div");
     dateEl.className = "exam-date";
@@ -468,12 +626,6 @@ async function renderExamList() {
 
     const btnRow = document.createElement("div");
     btnRow.className = "exam-card-buttons";
-
-    const openBtn = document.createElement("button");
-    openBtn.className = "openExamBtn";
-    openBtn.type = "button";
-    openBtn.textContent = "풀기";
-    openBtn.addEventListener("click", () => openExam(meta.id));
 
     const delBtn = document.createElement("button");
     delBtn.className = "deleteExamCardBtn";
@@ -506,7 +658,6 @@ async function renderExamList() {
       renderExamList();
     });
 
-    btnRow.appendChild(openBtn);
     btnRow.appendChild(delBtn);
 
     const info = document.createElement("div");
@@ -522,6 +673,24 @@ async function renderExamList() {
     card.appendChild(info);
     card.appendChild(btnRow);
     card.appendChild(renameBtn); // 카드 오른쪽 상단
+    // 카드(시험지 선택 칸)를 누르면 바로 입장
+    card.tabIndex = 0;
+    card.setAttribute("role", "button");
+    card.setAttribute("aria-label", `${meta.title || "제목 없음"} 풀기`);
+    card.addEventListener("click", (e) => {
+      if (e.target.closest("button")) return;   // 이름 변경 / 삭제 버튼은 제외
+      if (justFinishedReorder) return;          // 순서를 바꾸고 손을 뗀 직후의 클릭은 무시
+      openExam(meta.id);
+    });
+    card.addEventListener("keydown", (e) => {
+      if (e.target !== card) return;
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        openExam(meta.id);
+      }
+    });
+
+    setupCardReorder(card);
     examListDiv.appendChild(card);
   });
 }
@@ -1967,7 +2136,7 @@ function updateKeyScore() {
     keyScoreDiv.textContent = "";
     return;
   }
-  const { earned, total, missing } = computeScore();
+  const { earned, total, missing, lost } = computeScore();
   if (total === 0) {
     keyScoreDiv.className = "muted";
     keyScoreDiv.textContent = "배점 정보가 없어요. 정답표의 '배점' 칸에 입력하면 점수가 계산돼요";
@@ -1976,6 +2145,11 @@ function updateKeyScore() {
   keyScoreDiv.className = "";
   const label = currentMode === "test" ? "최종 점수" : "현재 점수";
   keyScoreDiv.textContent = `${label}: ${earned}점 / ${total}점` + (missing ? ` (배점 미입력 ${missing}문항 제외)` : "");
+  // 현재까지 틀린 문제의 점수를 작게 함께 표시
+  const wrongEl = document.createElement("span");
+  wrongEl.className = "wrong-score";
+  wrongEl.textContent = `틀린 점수 ${lost}점`;
+  keyScoreDiv.appendChild(wrongEl);
 }
 
 // 시험방식: 제출하면 그동안 고른 답을 한 번에 채점한다
