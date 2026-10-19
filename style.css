@@ -1,8 +1,20 @@
-/* 폰트: KBL Jump EB Extended (이 파일과 같은 폴더에 KBLJump_EB_Extended.otf 가 있어야 해요) */
+/* 글꼴
+   - 기본(글자·숫자 모두): Apple SD Gothic Neo SB
+   - 정답 선택 버튼(1~5)과 문항 선택 버튼의 숫자만: KBL Jump EB Extended
+   두 글꼴 파일(KBLJump_EB_Extended.otf, AppleSDGothicNeoSB.ttf)은 이 파일과 같은 폴더에 있어야 해요. */
 @font-face {
   font-family: "KBL Jump";
   src: url("KBLJump_EB_Extended.otf") format("opentype");
   font-weight: 100 900; /* 굵기가 한 가지뿐이라 가짜 굵게 처리가 생기지 않도록 */
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0030-0039; /* 숫자 모양에만 쓰도록 */
+}
+
+@font-face {
+  font-family: "Apple SD Gothic SB";
+  src: url("AppleSDGothicNeoSB.ttf") format("truetype");
+  font-weight: 100 900;
   font-style: normal;
   font-display: swap;
 }
@@ -27,6 +39,9 @@
   --radius-lg: 28px;
   --radius-md: 20px;
   --radius-sm: 14px;
+  /* 애니메이션 곡선: iOS 시트/푸시 화면에서 쓰는 감속 곡선과, 살짝 튕기는 스프링 */
+  --ease-ios: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-spring: cubic-bezier(0.34, 1.45, 0.64, 1);
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.4);
   --shadow-float: 0 6px 16px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.3);
   --shadow-float-hover: 0 14px 32px rgba(0, 0, 0, 0.5), 0 4px 10px rgba(0, 0, 0, 0.35);
@@ -60,8 +75,8 @@
 }
 
 body {
-  font-family: "KBL Jump", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Apple SD Gothic Neo",
-    "Malgun Gothic", system-ui, sans-serif;
+  font-family: "Apple SD Gothic SB", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   background: var(--bg);
   color: var(--text);
@@ -69,7 +84,7 @@ body {
   margin: 0 auto;
   padding: 24px 20px 80px;
   line-height: 1.5;
-  letter-spacing: -0.03em; /* 폭이 넓은 글꼴이라 글자 간격을 살짝 좁힘 */
+  letter-spacing: -0.01em;
   transition: background 0.2s ease, color 0.2s ease;
 }
 
@@ -217,8 +232,9 @@ button {
   cursor: pointer;
   background: var(--accent);
   color: var(--on-accent);
-  letter-spacing: -0.02em;
-  transition: opacity 0.15s ease, transform 0.1s ease;
+  letter-spacing: -0.01em;
+  transition: opacity 0.2s var(--ease-ios), transform 0.3s var(--ease-spring), background-color 0.2s var(--ease-ios),
+    color 0.2s var(--ease-ios), box-shadow 0.3s var(--ease-ios);
 }
 
 button:hover { opacity: 0.85; }
@@ -246,7 +262,8 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
   padding: 20px;
   box-shadow: var(--shadow-float);
   transition: transform 0.18s ease, box-shadow 0.18s ease;
-  animation: fadeSlideUp 0.3s ease;
+  animation: fadeSlideUp 0.55s var(--ease-ios) backwards;
+  animation-delay: calc(var(--i, 0) * 40ms);
 }
 
 .exam-card:hover {
@@ -345,7 +362,7 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
 
 #hideKeyBtn:hover { color: var(--bad); border-color: var(--bad); opacity: 1; }
 
-#keySection.revealed #hideKeyBtn { display: inline-flex; animation: floatIn 0.25s ease; }
+#keySection.revealed #hideKeyBtn { display: inline-flex; animation: floatIn 0.40s var(--ease-ios); }
 
 #keyWrapper { position: relative; }
 
@@ -451,9 +468,9 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
 
 .nav-btn:hover { transform: translateY(-1px); }
 .nav-btn.current { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.nav-btn.correct { background: var(--good-soft); border-color: var(--good); color: var(--good); animation: popIn 0.25s ease; }
-.nav-btn.wrong { background: var(--bad-soft); border-color: var(--bad); color: var(--bad); animation: popIn 0.25s ease; }
-.nav-btn.answered { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); animation: popIn 0.2s ease; }
+.nav-btn.correct { background: var(--good-soft); border-color: var(--good); color: var(--good); animation: popIn 0.42s var(--ease-spring); }
+.nav-btn.wrong { background: var(--bad-soft); border-color: var(--bad); color: var(--bad); animation: popIn 0.42s var(--ease-spring); }
+.nav-btn.answered { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); animation: popIn 0.42s var(--ease-spring); }
 .nav-btn.locked { opacity: 0.35; cursor: default; }
 
 /* 답 선택 패널 안에서는 공간이 좁으므로 살짝 축소 */
@@ -662,7 +679,18 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16);
 }
 
-#colorSwatches.hidden { display: none; }
+#colorSwatches {
+  transform-origin: 50% 0;
+  transition: opacity 0.22s var(--ease-ios), transform 0.4s var(--ease-spring);
+}
+
+#colorSwatches.hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(-6px) scale(0.88);
+  transition: opacity 0.15s var(--ease-ios), transform 0.2s var(--ease-ios), visibility 0s linear 0.2s;
+}
 
 #colorSwatches .colorSwatch {
   width: 26px;
@@ -712,7 +740,7 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
   font-size: 17px;
   font-weight: 700;
   margin-bottom: 16px;
-  animation: fadeSlideUp 0.25s ease;
+  animation: fadeSlideUp 0.40s var(--ease-ios);
 }
 
 #bigButtons {
@@ -743,7 +771,7 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
   border-color: var(--accent);
   background: var(--accent);
   color: var(--on-accent);
-  animation: popIn 0.2s ease;
+  animation: popIn 0.42s var(--ease-spring);
 }
 
 #feedback {
@@ -753,7 +781,7 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
   margin-bottom: 16px;
 }
 
-#feedback:not(:empty) { animation: fadeSlideUp 0.25s ease; }
+#feedback:not(:empty) { animation: fadeSlideUp 0.40s var(--ease-ios); }
 
 #submitTestBtn {
   display: block;
@@ -764,7 +792,7 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
 
 #submitTestBtn:hover { opacity: 0.85; }
 
-.anim-fade { animation: fadeSlideUp 0.25s ease; }
+.anim-fade { animation: fadeSlideUp 0.40s var(--ease-ios); }
 .anim-pulse { animation: pulseRing 0.5s ease; }
 
 #navButtons { display: flex; justify-content: center; gap: 10px; }
@@ -794,10 +822,19 @@ button:disabled { opacity: 0.35; cursor: default; transform: none; }
   background: color-mix(in srgb, var(--bg) 72%, transparent);
   backdrop-filter: blur(10px) saturate(160%);
   -webkit-backdrop-filter: blur(10px) saturate(160%);
-  animation: fadeSlideUp 0.2s ease;
 }
 
-#loadingOverlay.hidden { display: none; }
+#loadingOverlay {
+  opacity: 1;
+  transition: opacity 0.35s var(--ease-ios);
+}
+
+#loadingOverlay.hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.3s var(--ease-ios), visibility 0s linear 0.3s;
+}
 
 /* 로딩: 통통 튀는 점 3개 */
 .loading-dots {
@@ -894,10 +931,29 @@ html { -webkit-text-size-adjust: 100%; }
   background: rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
-  animation: fadeSlideUp 0.2s ease;
 }
 
-#uploadModal.hidden { display: none; }
+#uploadModal {
+  opacity: 1;
+  transition: opacity 0.35s var(--ease-ios);
+}
+
+#uploadModal.hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.28s var(--ease-ios), visibility 0s linear 0.28s;
+}
+
+#uploadModal #uploadSection {
+  transform: translateY(0) scale(1);
+  transition: transform 0.5s var(--ease-spring);
+}
+
+#uploadModal.hidden #uploadSection {
+  transform: translateY(18px) scale(0.94);
+  transition: transform 0.28s var(--ease-ios);
+}
 
 #uploadModal #uploadSection {
   width: 100%;
@@ -1313,6 +1369,64 @@ body.reordering {
 }
 
 .key-cell input.pt-input::placeholder { color: rgba(255, 255, 255, 0.28); }
+
+/* ---------------------------------------------------------
+   애니메이션: 누를 때 살짝 눌리고, 화면은 옆으로 밀리며 이어지게
+--------------------------------------------------------- */
+button:active:not(:disabled) {
+  transform: scale(0.95);
+  transition-duration: 0.12s;
+}
+
+.exam-card:active {
+  transform: scale(0.985);
+  transition-duration: 0.15s;
+}
+
+/* 화면 전환 (View Transitions 지원 브라우저) : 들어갈 땐 오른쪽에서, 돌아갈 땐 왼쪽에서 */
+::view-transition-old(root),
+::view-transition-new(root) {
+  mix-blend-mode: normal;
+}
+
+html[data-nav="forward"]::view-transition-old(root) { animation: vtOutToLeft 0.32s var(--ease-ios) both; }
+html[data-nav="forward"]::view-transition-new(root) { animation: vtInFromRight 0.55s var(--ease-ios) both; }
+html[data-nav="back"]::view-transition-old(root) { animation: vtOutToRight 0.32s var(--ease-ios) both; }
+html[data-nav="back"]::view-transition-new(root) { animation: vtInFromLeft 0.55s var(--ease-ios) both; }
+
+@keyframes vtOutToLeft { to { opacity: 0; transform: translateX(-5%) scale(0.985); } }
+@keyframes vtInFromRight { from { opacity: 0; transform: translateX(8%) scale(0.99); } }
+@keyframes vtOutToRight { to { opacity: 0; transform: translateX(5%) scale(0.985); } }
+@keyframes vtInFromLeft { from { opacity: 0; transform: translateX(-8%) scale(0.99); } }
+
+/* View Transitions 를 지원하지 않는 브라우저: 들어오는 화면만 밀려 들어옴 */
+.screen-in-forward { animation: screenInRight 0.55s var(--ease-ios) both; }
+.screen-in-back { animation: screenInLeft 0.55s var(--ease-ios) both; }
+
+@keyframes screenInRight {
+  from { opacity: 0; transform: translateX(36px) scale(0.99); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes screenInLeft {
+  from { opacity: 0; transform: translateX(-36px) scale(0.99); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) { animation: none !important; }
+}
+
+/* ---------------------------------------------------------
+   KBL Jump 숫자: 정답 선택(1~5)과 문항 선택 버튼에만 사용
+--------------------------------------------------------- */
+.choiceBtn,
+.nav-btn {
+  font-family: "KBL Jump", "Apple SD Gothic SB", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
+    "Malgun Gothic", system-ui, sans-serif;
+}
 
 /* ---------------------------------------------------------
    모바일 (폰 화면) 대응

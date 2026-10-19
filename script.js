@@ -234,7 +234,6 @@ Cloud.onAuthChange(async (user) => {
   }
 });
 
-const deleteExamBtn = document.getElementById("deleteExamBtn");
 const resetProgressBtn = document.getElementById("resetProgressBtn");
 
 const zoomInBtn = document.getElementById("zoomInBtn");
@@ -508,11 +507,23 @@ function updateCardPlaceholder() {
     const b = el.getBoundingClientRect();
     return b.top + b.height / 2 > cy;
   });
-  if (target) {
-    if (placeholder.nextElementSibling !== target) examListDiv.insertBefore(placeholder, target);
-  } else if (examListDiv.lastElementChild !== placeholder) {
-    examListDiv.appendChild(placeholder);
-  }
+  const needMove = target ? placeholder.nextElementSibling !== target : examListDiv.lastElementChild !== placeholder;
+  if (!needMove) return;
+
+  // FLIP: 옮기기 전 위치를 기억해 두었다가, 옮긴 뒤 이전 위치에서 새 위치로 미끄러지게 한다
+  const before = new Map(others.map((el) => [el, el.getBoundingClientRect().top]));
+  if (target) examListDiv.insertBefore(placeholder, target);
+  else examListDiv.appendChild(placeholder);
+  if (reduceMotion()) return;
+  others.forEach((el) => {
+    const dy = before.get(el) - el.getBoundingClientRect().top;
+    if (dy) {
+      el.animate(
+        [{ transform: `translateY(${dy}px)` }, { transform: "translateY(0)" }],
+        { duration: 380, easing: "cubic-bezier(0.32, 0.72, 0, 1)" }
+      );
+    }
+  });
 }
 
 // 화면 위/아래 끝으로 끌면 자동으로 스크롤
@@ -540,6 +551,7 @@ async function endCardDrag(e) {
   card.removeEventListener("pointercancel", endCardDrag);
   try { card.releasePointerCapture(e.pointerId); } catch (err) { /* 무시 */ }
 
+  const fromRect = card.getBoundingClientRect(); // 놓은 순간의 위치
   examListDiv.insertBefore(card, placeholder);
   placeholder.remove();
   card.classList.remove("dragging");
@@ -548,6 +560,18 @@ async function endCardDrag(e) {
   card.style.top = "";
   document.body.classList.remove("reordering");
   reorderDrag = null;
+
+  // 놓은 위치에서 자기 자리로 스르륵 들어가기
+  if (!reduceMotion()) {
+    const toRect = card.getBoundingClientRect();
+    card.animate(
+      [
+        { transform: `translate(${fromRect.left - toRect.left}px, ${fromRect.top - toRect.top}px) scale(1.02)` },
+        { transform: "translate(0, 0) scale(1)" },
+      ],
+      { duration: 420, easing: "cubic-bezier(0.34, 1.3, 0.64, 1)" }
+    );
+  }
 
   await saveCardOrder();
 }
@@ -585,10 +609,11 @@ async function renderExamList() {
     return;
   }
 
-  metas.forEach((meta) => {
+  metas.forEach((meta, idx) => {
     const card = document.createElement("div");
     card.className = "exam-card " + (meta.mode === "test" ? "mode-test" : "mode-free");
     card.dataset.examId = meta.id;
+    card.style.setProperty("--i", Math.min(idx, 10)); // 위에서부터 차례로 나타나게
 
     const title = document.createElement("div");
     title.className = "exam-title";
@@ -695,10 +720,39 @@ async function renderExamList() {
   });
 }
 
+function reduceMotion() {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+// 화면 전환: View Transitions 를 지원하는 브라우저는 화면이 옆으로 밀리며 자연스럽게 이어지고,
+// 지원하지 않으면 들어오는 화면만 슬라이드로 나타난다. direction: 1 = 들어가기, -1 = 돌아가기
+function switchScreen(direction, update, enterEl) {
+  document.documentElement.dataset.nav = direction > 0 ? "forward" : "back";
+  if (document.startViewTransition && !reduceMotion()) {
+    try {
+      document.startViewTransition(update);
+      return;
+    } catch (e) {
+      /* 아래 기본 동작으로 */
+    }
+  }
+  update();
+  if (reduceMotion()) return;
+  const cls = direction > 0 ? "screen-in-forward" : "screen-in-back";
+  enterEl.classList.remove("screen-in-forward", "screen-in-back");
+  void enterEl.offsetWidth;
+  enterEl.classList.add(cls);
+  enterEl.addEventListener("animationend", () => enterEl.classList.remove(cls), { once: true });
+}
+
 function showHome() {
   currentExamId = null;
-  solveSection.style.display = "none";
-  homeSection.style.display = "block";
+  const swap = () => {
+    solveSection.style.display = "none";
+    homeSection.style.display = "block";
+  };
+  if (solveSection.style.display !== "none") switchScreen(-1, swap, homeSection);
+  else swap();
   examFileInput.value = "";
   answerFileInput.value = "";
   videoUrlInput.value = "";
@@ -709,8 +763,16 @@ function showHome() {
 }
 
 function showSolve() {
-  homeSection.style.display = "none";
-  solveSection.style.display = "block";
+  if (solveSection.style.display !== "none") return;
+  switchScreen(
+    1,
+    () => {
+      homeSection.style.display = "none";
+      solveSection.style.display = "block";
+      window.scrollTo(0, 0);
+    },
+    solveSection
+  );
 }
 
 backToListBtn.addEventListener("click", showHome);
@@ -800,17 +862,29 @@ async function openExam(id) {
     }
     await renderAnswerKeyPDF(answerBlob, answerKeyPagesDiv, 1.6);
 
-    // 배점 정보가 없던 예전 문제지: 저장된 정답지에서 배점만 다시 읽어 채운다
-    if (!meta.keyPoints && answerBlob) {
+    // 정답이나 배점이 비어 있던 예전 문제지: 저장된 정답지에서 다시 읽어 빈 곳을 채운다
+    const keyBlank = !(meta.keyAnswers || []).some((a) => a);
+    const pointsBlank = !(meta.keyPoints || []).some((p) => p !== "" && p !== undefined && p !== null);
+    if ((keyBlank || pointsBlank) && answerBlob) {
       try {
         const r = await extractAnswerKey(answerBlob);
-        r.points.forEach((p, idx) => {
-          const el = document.getElementById("pt" + (idx + 1));
-          if (el && p !== "") el.value = p;
-        });
-        pointsBackfilled = true;
+        if (pointsBlank) {
+          r.points.forEach((p, idx) => {
+            const el = document.getElementById("pt" + (idx + 1));
+            if (el && p !== "") el.value = p;
+          });
+        }
+        if (keyBlank) {
+          r.answers.forEach((a, idx) => {
+            const el = document.getElementById("key" + (idx + 1));
+            if (el && a) el.value = a;
+            // 정답이 비어 있을 때 이미 채점해 둔 문항은 새 정답으로 다시 채점
+            if (judged[idx + 1]) wasCorrect[idx + 1] = !!a && studentAnswers[idx + 1] === a;
+          });
+        }
+        pointsBackfilled = r.answers.some((a) => a) || r.points.some((p) => p !== "");
       } catch (e) {
-        console.error("배점 추출 실패", e);
+        console.error("정답지 다시 읽기 실패", e);
       }
     }
 
@@ -1622,19 +1696,8 @@ hideKeyBtn.addEventListener("click", () => {
 });
 
 /* ---------------------------------------------------------
-   이 문제지 삭제 / 푼 문제 초기화 (풀이 화면 안에서)
+   푼 문제 초기화 (풀이 화면 안에서)
 --------------------------------------------------------- */
-deleteExamBtn.addEventListener("click", async () => {
-  if (!currentExamId) return;
-  if (!confirm("이 문제지와 정답, 풀이 기록을 모두 삭제할까요? 이 작업은 되돌릴 수 없습니다.")) return;
-
-  await idbDeleteMeta(currentExamId);
-  await idbDeleteBlob(currentExamId);
-  await idbDeleteBlob(currentExamId + "_answer");
-  if (cloudUser) await Cloud.deleteRemoteExam(cloudUser.uid, currentExamId);
-  showHome();
-});
-
 resetProgressBtn.addEventListener("click", async () => {
   if (!confirm("지금까지 푼 답을 모두 지우고 다시 풀까요? 문제지와 정답은 유지됩니다.")) return;
 
@@ -1851,57 +1914,143 @@ async function renderAnswerKeyPDF(blob, container, scale) {
   }
 }
 
+// ==KEY-BEGIN==
+/* ---------------------------------------------------------
+   정답지 PDF 읽기: 여러 가지 표 모양을 차례로 시도해서 가장 잘 읽힌 것을 쓴다
+   A) "1 ③ 2"        정답이 원문자(①~⑤)로 적힌 표 (배점이 오른쪽에 있으면 함께 읽음)
+   B) "1 2 1  11 5 2" 문항번호 / 정답(1~5) / 배점이 숫자로만 적힌 표 (예: 73회 정답표)
+   C) "1 2  2 4"      문항번호 / 정답만 있는 표
+--------------------------------------------------------- */
+function emptyKeyResult() {
+  return { answers: {}, points: {} };
+}
+
+function countKeyResult(res) {
+  return Object.keys(res.answers).length;
+}
+
+// 글자 조각들을 같은 줄끼리 묶어서(위치 기준) 왼쪽→오른쪽으로 이어 붙인다.
+// PDF 안에서 글자가 쓰인 순서가 표의 줄 순서와 달라도(세로 방향 등) 줄 단위로 복원하기 위함
+function buildKeyLines(items) {
+  const cells = items
+    .filter((it) => typeof it.str === "string" && it.str.trim())
+    .map((it) => ({ s: it.str.trim(), x: it.transform[4], y: it.transform[5], h: it.height || 10 }));
+  cells.sort((a, b) => b.y - a.y || a.x - b.x);
+  const lines = [];
+  for (const cell of cells) {
+    const last = lines[lines.length - 1];
+    if (last && Math.abs(last.y - cell.y) <= Math.max(2.5, cell.h * 0.35)) last.cells.push(cell);
+    else lines.push({ y: cell.y, cells: [cell] });
+  }
+  return lines
+    .map((l) => l.cells.sort((a, b) => a.x - b.x).map((c) => c.s).join(" "))
+    .join(" | ");
+}
+
+function parseCircledKey(text, n) {
+  const circledMap = { "①": "1", "②": "2", "③": "3", "④": "4", "⑤": "5" };
+  // 정답 바로 오른쪽의 한 자리 숫자를 배점으로 읽는다.
+  // (그 숫자 뒤에 또 원문자가 이어지면 다음 문항 번호이므로 배점으로 보지 않는다)
+  const pattern = /(\d{1,2})\s*[.)]?\s*([①②③④⑤])(?:\s*(\d)(?!\d)(?!\s*[.)]?\s*[①②③④⑤]))?/g;
+  const res = emptyKeyResult();
+  let m;
+  while ((m = pattern.exec(text)) !== null) {
+    const q = parseInt(m[1], 10);
+    if (q < 1 || q > n || res.answers[q]) continue;
+    res.answers[q] = circledMap[m[2]];
+    if (m[3]) {
+      const p = parseInt(m[3], 10);
+      if (p >= 1 && p <= 5) res.points[q] = p;
+    }
+  }
+  return res;
+}
+
+function parseTripleKey(text, n) {
+  // 문항번호(1~2자리) 정답(1~5) 배점(1~5). 앞에 숫자가 붙어 있으면 다른 숫자의 일부이므로 제외
+  const pattern = /(?:^|[^\d])(\d{1,2})\s+([1-5])\s+([1-5])(?!\d)/g;
+  const res = emptyKeyResult();
+  let m;
+  while ((m = pattern.exec(text)) !== null) {
+    const q = parseInt(m[1], 10);
+    if (q < 1 || q > n || res.answers[q]) continue;
+    res.answers[q] = m[2];
+    res.points[q] = parseInt(m[3], 10);
+  }
+  return res;
+}
+
+function parsePairKey(text, n) {
+  const pattern = /(?:^|[^\d])(\d{1,2})\s+([1-5])(?!\d)/g;
+  const res = emptyKeyResult();
+  let m;
+  while ((m = pattern.exec(text)) !== null) {
+    const q = parseInt(m[1], 10);
+    if (q < 1 || q > n || res.answers[q]) continue;
+    res.answers[q] = m[2];
+  }
+  return res;
+}
+
+// 같은 형식을 "줄 단위(위치 기준)"와 "PDF에 쓰인 순서" 두 방식으로 읽어서 더 잘 읽힌 쪽을 쓴다
+function bestKeyResult(parse, texts, n) {
+  return texts.map((t) => parse(t, n)).sort((a, b) => countKeyResult(b) - countKeyResult(a))[0];
+}
+
+function keyResultToArrays(res, n) {
+  const answers = [];
+  const points = [];
+  for (let i = 1; i <= n; i++) {
+    answers.push(res.answers[i] || "");
+    points.push(res.points[i] !== undefined ? res.points[i] : "");
+  }
+  return { answers, points };
+}
+// ==KEY-END==
+
 // 정답지 PDF에서 정답 + 배점 자동 추출 -> { answers: [...], points: [...] }
 async function extractAnswerKey(file) {
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
 
   let fullText = "";
+  const lineParts = [];
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
     const page = await pdf.getPage(pageNum);
     const textContent = await page.getTextContent();
     fullText += " " + textContent.items.map((item) => item.str).join(" ");
+    lineParts.push(buildKeyLines(textContent.items));
   }
+  const lineText = lineParts.join(" | ");
+  const texts = [lineText, fullText];
+  const n = questionCount;
+  const enough = n * 0.8;
 
-  const circledMap = { "①": "1", "②": "2", "③": "3", "④": "4", "⑤": "5" };
-  const emptyPoints = () => new Array(questionCount).fill("");
+  // A) 원문자 표
+  const circled = parseCircledKey(fullText, n);
+  if (countKeyResult(circled) >= enough) return keyResultToArrays(circled, n);
 
-  // 전략 1 (우선): "문항번호 + 정답(원문자) + 배점" 패턴 (예: "1 ③ 2", "11 ⑤ 3").
-  // 정답은 원문자로만 표기되므로 번호와 정답을 짝지을 수 있고,
-  // 정답 바로 오른쪽의 한 자리 숫자를 배점으로 읽는다.
-  // (바로 뒤 숫자가 다음 문항 번호인 경우 - 즉 그 뒤에 원문자가 이어지면 - 배점으로 보지 않는다.)
-  const pattern = /(\d{1,2})\s*[.)]?\s*([①②③④⑤])(?:\s*(\d)(?!\d)(?!\s*[.)]?\s*[①②③④⑤]))?/g;
-  const found = {};
-  const foundPts = {};
-  let match;
-  while ((match = pattern.exec(fullText)) !== null) {
-    const qNum = parseInt(match[1], 10);
-    if (qNum >= 1 && qNum <= questionCount && !found[qNum]) {
-      found[qNum] = circledMap[match[2]];
-      if (match[3]) {
-        const pts = parseInt(match[3], 10);
-        if (pts >= 1 && pts <= 5) foundPts[qNum] = pts;
-      }
-    }
-  }
-  if (Object.keys(found).length >= questionCount * 0.8) {
-    const answers = [];
-    const points = [];
-    for (let i = 1; i <= questionCount; i++) {
-      answers.push(found[i] || "");
-      points.push(foundPts[i] !== undefined ? foundPts[i] : "");
-    }
-    return { answers, points };
-  }
+  // B) 문항번호 / 정답 / 배점 숫자 표
+  const triple = bestKeyResult(parseTripleKey, texts, n);
+  if (countKeyResult(triple) >= enough) return keyResultToArrays(triple, n);
 
-  // 전략 2 (보조): 원문자가 문항 수 이상 등장하면 등장 순서를 1번~N번으로 가정한다. (배점은 알 수 없음)
+  // C) 문항번호 / 정답 숫자 표 (배점 없음)
+  const pair = bestKeyResult(parsePairKey, texts, n);
+  if (countKeyResult(pair) >= enough) return keyResultToArrays(pair, n);
+
+  // D) 원문자가 문항 수 이상 등장하면 등장 순서를 1번~N번으로 가정 (배점은 알 수 없음)
   const circledMatches = fullText.match(/[①②③④⑤]/g) || [];
-  if (circledMatches.length >= questionCount) {
-    return { answers: circledMatches.slice(0, questionCount).map((c) => circledMap[c]), points: emptyPoints() };
+  if (circledMatches.length >= n) {
+    const map = { "①": "1", "②": "2", "③": "3", "④": "4", "⑤": "5" };
+    return { answers: circledMatches.slice(0, n).map((c) => map[c]), points: new Array(n).fill("") };
   }
 
-  // 전략 3: 실패 시 빈 값 (수동 입력)
-  return { answers: new Array(questionCount).fill(""), points: emptyPoints() };
+  // E) 완전히 읽지는 못했지만 절반 이상 읽힌 결과가 있으면 그것을 쓴다 (빈 칸은 직접 입력)
+  const best = [circled, triple, pair].sort((a, b) => countKeyResult(b) - countKeyResult(a))[0];
+  if (countKeyResult(best) >= n * 0.5) return keyResultToArrays(best, n);
+
+  // F) 실패 시 빈 값 (수동 입력)
+  return { answers: new Array(n).fill(""), points: new Array(n).fill("") };
 }
 
 // 정답 입력 표 (자동 추출 결과로 채워짐, 수정 가능)
